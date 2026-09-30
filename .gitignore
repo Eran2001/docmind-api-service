@@ -1,11 +1,8 @@
 node_modules
-.next
-.env
-.env.local
-
-.DS_Store
-*.tsbuildinfo
-next-env.d.ts
 dist
 coverage
 storage
+.env
+.env.local
+*.tsbuildinfo
+.DS_Store

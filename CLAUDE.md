@@ -7,8 +7,7 @@ Backend API and orchestration layer: **NestJS (Fastify adapter) + TypeScript str
 - This service owns users, data, auth and orchestration. It is the ONLY service that touches Postgres and Redis.
 - The AI service is stateless and internal. Call it with header `X-Internal-Key: $INTERNAL_API_KEY`; pass file BYTES (multipart), never paths.
 - The browser only talks to this API. Base path `/api/v1`.
-- Error shape everywhere: `{ "error": { "code", "message", "details"? } }`. Codes: VALIDATION_ERROR 400, UNAUTHORIZED 401, NOT_FOUND 404,
-  DUPLICATE_DOCUMENT 409, LIMIT_REACHED 422, RATE_LIMITED 429, AI_SERVICE_ERROR 502, INTERNAL_ERROR 500.
+- Response and error shapes: see "Response envelope" below. Error codes are PascalCase (`NotFound`, `ApiRouteFailed`, ...), not the spec's SCREAMING_CASE.
 - Every response carries `X-Request-Id` (generate if absent) and it appears in every log line.
 - No hardcoded secrets. Config is validated with zod at startup in `src/config`; crash with a clear message if anything is missing.
 - Never log `password`, `authorization`, `cookie`.
@@ -16,9 +15,10 @@ Backend API and orchestration layer: **NestJS (Fastify adapter) + TypeScript str
 - Every phase ships with tests (spec Section 13) and a README update.
 
 ## Stack
-Node 22 LTS · NestJS 11 on `@nestjs/platform-fastify` · TypeScript strict (no `any`) · Drizzle ORM + drizzle-kit · Postgres 16 + pgvector
-zod (validation, via `nestjs-zod`) · BullMQ via `@nestjs/bullmq` + Redis 7 · `@nestjs/throttler` (Redis store) · `@fastify/helmet`, `@fastify/cookie`, `@fastify/multipart`
-`@nestjs/jwt` + argon2 · `nestjs-pino` (logging, redact `password`, `authorization`, `cookie`) · Vitest / Jest + supertest · npm
+Node 22+ (`.nvmrc`) · NestJS 11 (CommonJS; Nest 12 is ESM-only, so we stay on 11) on `@nestjs/platform-fastify` · TypeScript strict (no `any`)
+Drizzle ORM + drizzle-kit on `pg` · Postgres 16 + pgvector · zod 3 (own `ZodValidationPipe`, schemas mirrored from the web app) · BullMQ via `@nestjs/bullmq` + Redis 7
+`@fastify/helmet`, `@fastify/cookie`, `@fastify/multipart` (Phase 3) · `@nestjs/throttler` (Redis store, Phase 8) · `@nestjs/jwt` + argon2 (Phase 2)
+`nestjs-pino` (logging, redaction) · Vitest with SWC (unit + e2e via `app.inject`, no supertest) · npm
 
 ## Layout
 ```
@@ -53,15 +53,32 @@ docmind-api-service/
 ```
 Rules: controllers are thin (parse DTO → call service → return). Business logic in services, ALL SQL in repositories (Drizzle). Modules never import each
 other's repositories; go through the exporting module's service. Cross-cutting behaviour (auth, errors, request-id, rate limits) is global via guards/filters/middleware.
-API types/zod schemas are mirrored in the web repo's `src/shared`. Keep DTOs and response shapes in sync with it (copy or publish a package; decide before Phase 1).
+API types/zod schemas are mirrored in the web repo's `src/types` and `src/schemas`. Keep DTOs and response shapes in sync with them (copy per phase).
+
+## Response envelope (differs from spec 8.1)
+Every response, success or failure, has the same keys in the same order (see `common/http/api-response.ts`):
+```
+success: { code: "OK", data, message, resourceId, requestId }
+failure: { code: "NotFound", error: { status, details? }, debug?, message, resourceId, requestId }     (no `data` on failures)
+```
+- `code` says what happened: `OK` for EVERY success (201/202 too; the HTTP status and `message` differ). On failure it is the error code:
+  `ValidationFailed` 400 · `Unauthorized` 401 · `NotFound` 404 (a resource) · `ApiRouteFailed` 404 (the URL) · `DuplicateDocument` 409 · `LimitReached` 422 ·
+  `RateLimited` 429 · `InternalError` 500 · `AiServiceFailed` 502 · `ServiceUnavailable` 503. Add new ones in `common/errors/error-codes.ts` (PascalCase).
+- `message` is human readable and sits OUTSIDE `error`. `error.details` carries structured info (e.g. zod `fieldErrors`). `debug` (original message, first stack frames, method, path) is
+  developer-only and is never sent when `NODE_ENV=production`. `resourceId` is the id of the created/affected resource, else `null`. `requestId` equals the `X-Request-Id` header.
+- Success helpers: `respond.ok(obj)` → `data: { ...obj }` · `respond.list(rows, { total?, nextCursor? })` → `data: { result: [ ... ], total?, nextCursor? }` (lists ALWAYS use `data.result`)
+  · `respond.created(obj, id)` (201) · `respond.accepted(obj, id)` (202, queued work) · `respond.of({ status, code, message, data })` for anything else.
+- A plain returned value is wrapped as `respond.ok`; returning nothing (`@HttpCode(204)`) sends no body; streams and downloads use `@RawResponse()`.
+- Failures: throw `AppError.notFound("Collection")`, `AppError.validation(...)` etc.; the global `AllExceptionsFilter` builds the envelope. Never `throw new NotFoundException` for a missing resource (that means "route not found").
 
 ## Auth (spec 6.1, 11)
-- argon2id password hashing; login failure is always "Invalid email or password".
-- Access JWT (HS256, 15 min, `{sub, role}`) in cookie `dm_access`; refresh token = 48 random bytes base64url in `dm_refresh`, store only its sha256.
-- Cookies: httpOnly, `secure` in production, `sameSite=lax`, refresh cookie `path=/auth`.
-- `/auth/refresh` rotates: revoke old, issue new. Reuse of a revoked token revokes ALL of that user's refresh tokens.
-- CORS: only `WEB_ORIGIN`, credentials on. Mutations are JSON-only except the upload route.
-- Settings endpoints needed by the web: `PATCH /auth/me {name,email}`, `POST /auth/change-password {currentPassword,newPassword}` (revoke other sessions), `DELETE /auth/me`.
+Built: `POST /auth/register`, `POST /auth/login`, `GET /auth/me`. Still to build: `/auth/refresh` (rotation + reuse detection), `/auth/logout`, and the Settings endpoints below.
+- Routes are protected by default (global `JwtAuthGuard`); `@Public()` opens one. `@CurrentUser()` gives `{ id, role }`. The guard only verifies the token (stateless); `/auth/me` checks the user still exists.
+- register/login return `data: { accessToken, tokenType: "Bearer", expiresIn: 900, user: { id, name, email, role, createdAt } }` (register is 201 with `resourceId` = user id). The web app sends `Authorization: Bearer <accessToken>`.
+- argon2id hashing (`@node-rs/argon2`). Login failure is always "Invalid email or password." (unknown email costs the same time as a wrong password). Emails are lowercased. Duplicate email → `EmailAlreadyRegistered` 409 with `error.details.fieldErrors.email`.
+- Access JWT: HS256, 15 min, `{ sub, role }`. Refresh token: 48 random bytes base64url, only its sha256 is stored (`refresh_tokens`); it goes to the browser ONLY as an httpOnly cookie `dm_refresh` (`SameSite=Lax`, `secure` in production, path `/api/v1/auth`), never in the JSON.
+- CORS: `WEB_ORIGIN` is a comma-separated allowlist (e.g. `http://localhost:3000,http://localhost:8080`); credentials on. Mutations are JSON-only except the upload route.
+- Settings endpoints the web needs: `PATCH /auth/me {name,email}`, `POST /auth/change-password {currentPassword,newPassword}` (revoke other sessions), `DELETE /auth/me`.
 
 ## Documents & ingestion (spec 6.2)
 - Upload: allow pdf/docx/txt/md, check magic bytes, max 20 MB, max 50 docs per collection, sha256 dedupe → 409 `DUPLICATE_DOCUMENT`.
@@ -88,4 +105,6 @@ Postgres 16 + pgvector (`vector`, `pgcrypto` extensions). All tables + indexes c
 Chunks carry `tsv` for keyword search and `embedding vector(1536)`.
 
 ## Commands
-Add as scripts are created: `npm run start:dev` · `npm run worker:dev` · `npm test` · `npm run lint` · `npm run db:migrate` · `npm run db:seed`. Run lint + typecheck before finishing any change.
+`npm run start:dev` · `npm run infra:up` (Postgres + Redis) · `npm run db:generate` then `npm run db:migrate` · `npm test` · `npm run lint` · `npm run typecheck`
+Schema changes: edit `src/database/schema.ts`, run `db:generate`, review the SQL, then `db:migrate`. Never edit an applied migration.
+Run typecheck, lint and tests before finishing any change. `app.setup.ts` holds the shared app setup, so e2e tests exercise the real one.

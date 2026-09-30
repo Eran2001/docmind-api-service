@@ -1,0 +1,35 @@
+# Local dev infrastructure. The API and worker run on the host (npm run start:dev).
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: docmind-postgres
+    environment:
+      POSTGRES_USER: docmind
+      POSTGRES_PASSWORD: docmind
+      POSTGRES_DB: docmind
+    ports:
+      - "5432:5432"
+    volumes:
+      - docmind-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docmind -d docmind"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: docmind-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - docmind-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  docmind-pgdata:
+  docmind-redisdata:
