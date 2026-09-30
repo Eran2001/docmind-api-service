@@ -36,4 +36,16 @@ export class UsersService {
   create(input: { email: string; passwordHash: string; name: string }) {
     return this.users.create(input);
   }
+
+  updateProfile(id: string, input: { name: string; email: string }) {
+    return this.users.updateProfile(id, input);
+  }
+
+  updatePasswordHash(id: string, passwordHash: string) {
+    return this.users.updatePasswordHash(id, passwordHash);
+  }
+
+  delete(id: string) {
+    return this.users.delete(id);
+  }
 }

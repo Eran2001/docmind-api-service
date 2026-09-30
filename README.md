@@ -29,9 +29,8 @@ web (Next.js) ──HTTPS/SSE──► API (this) ──internal HTTP──► A
 | Phase | What | State |
 |---|---|---|
 | 1 | Foundation: config, errors, logging, database schema + migration, Redis + queues, health check | Done |
-| 2 | Auth: register, login, current user | Done |
-| 2 | Auth: refresh with rotation, logout, Settings endpoints (edit profile, change password, delete account) | Next |
-| 3 | Collections and document upload (queues the ingest job) | |
+| 2 | Auth: register, login, current user, refresh (rotation + reuse detection), logout, edit profile, change password, delete account | Done |
+| 3 | Collections and document upload (queues the ingest job) | Next |
 | 4 | Ingestion pipeline (needs the AI service) | |
 | 5 | Chat: hybrid search, streaming answers, citations | |
 | 6 | Feedback and usage/cost dashboards | |
@@ -71,8 +70,18 @@ npm run start:dev             # http://localhost:4000/api/v1/health
 |---|---|---|
 | POST | `/api/v1/auth/register` | body `{ name, email, password }` → 201, `data: { accessToken, tokenType, expiresIn, user }`, `resourceId` = user id, sets the httpOnly `dm_refresh` cookie. Duplicate email → 409 `EmailAlreadyRegistered`. |
 | POST | `/api/v1/auth/login` | body `{ email, password }` → 200, same `data` and cookie. Any failure → 401 `Unauthorized` "Invalid email or password." |
+| POST | `/api/v1/auth/refresh` | public; the browser sends the httpOnly `dm_refresh` cookie. → `data`: a NEW access token (same shape as login) and a rotated cookie. Each refresh token works once. |
+| POST | `/api/v1/auth/logout` | public; revokes this browser's refresh token and clears the cookie. Always 200. |
 | GET | `/api/v1/auth/me` | needs `Authorization: Bearer <accessToken>` → `data: { user }`; otherwise 401 `Unauthorized`. |
+| PATCH | `/api/v1/auth/me` | protected; body `{ name, email }` → `data: { user }`. Email taken by someone else → 409 `EmailAlreadyRegistered`. |
+| POST | `/api/v1/auth/change-password` | protected; body `{ currentPassword, newPassword }`. Wrong current password → **400** `ValidationFailed` on `currentPassword` (not 401). Signs out every other device. |
+| DELETE | `/api/v1/auth/me` | protected; deletes the account and everything it owns (foreign keys cascade) and clears the cookie. |
 | GET | `/api/v1/health` | `data: { status, db, redis, ai }`. 200 when ok or degraded (only the AI service is down), 503 (`code: ServiceUnavailable`) when the database or Redis is down. |
+
+**Sessions:** a short-lived access token (JWT, sent as `Authorization: Bearer`) plus a long-lived refresh token that only ever lives in an httpOnly cookie
+(path `/api/v1/auth`, 7 days, only its sha256 is stored). Refreshing rotates it. If an already-used refresh token is shown again after more than 10 seconds,
+it is treated as stolen and every session of that user is revoked; within 10 seconds it is treated as two tabs racing and just refused.
+Changing the password signs out all other devices (their access tokens still work until they expire, at most 15 minutes).
 
 Every response has an `X-Request-Id` header (a valid incoming one is reused).
 
@@ -125,6 +134,7 @@ Validated with zod at startup; the server refuses to start and lists every probl
 | `DATABASE_URL` | (required) | `postgres://user:pass@host:5432/db` |
 | `REDIS_URL` | (required) | `redis://host:6379` |
 | `JWT_SECRET` | (required) | at least 32 characters; signs access tokens |
+| `ACCESS_TOKEN_TTL_SECONDS` | `900` | access token lifetime (15 min). Set it to a few seconds to watch the refresh flow |
 | `INTERNAL_API_KEY` | (required) | at least 16 characters, shared with the AI service |
 | `API_PORT` | `4000` | |
 | `WEB_ORIGIN` | `http://localhost:3000` | allowed CORS origin(s), comma-separated (credentials allowed) |

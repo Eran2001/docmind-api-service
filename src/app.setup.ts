@@ -33,6 +33,12 @@ export async function configureApp(app: NestFastifyApplication, config: Env): Pr
   app.setGlobalPrefix(API_PREFIX);
   await app.register(fastifyHelmet);
   await app.register(fastifyCookie);
-  app.enableCors({ origin: config.WEB_ORIGIN, credentials: true });
+  app.enableCors({
+    origin: config.WEB_ORIGIN,
+    credentials: true,
+    // The default is only GET, HEAD and POST, which would block every PATCH (edit) and DELETE from the browser.
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+    exposedHeaders: ["X-Request-Id"],
+  });
   app.enableShutdownHooks();
 }

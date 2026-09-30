@@ -8,8 +8,12 @@ export const COOKIES = { ACCESS: "dm_access", REFRESH: "dm_refresh" } as const;
 export const QUEUES = { INGEST: "ingest-document", EVALS: "run-eval" } as const;
 
 export const AUTH = {
-  ACCESS_TTL_SECONDS: 15 * 60,
   REFRESH_TTL_SECONDS: 7 * 24 * 60 * 60,
+  /**
+   * A rotated refresh token that shows up again within this window is a benign race (two tabs refreshing at once), so it is
+   * rejected without signing the user out everywhere. After it, the same token means it was stolen and ALL sessions are revoked.
+   */
+  REFRESH_REUSE_GRACE_MS: 10_000,
   /** The refresh cookie is only sent to the auth routes. */
   REFRESH_COOKIE_PATH: `/${API_PREFIX}/auth`,
 } as const;

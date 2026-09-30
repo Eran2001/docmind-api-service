@@ -127,6 +127,17 @@ describe("app setup", () => {
     expect(allowed.headers["access-control-allow-credentials"]).toBe("true");
     expect(String(allowed.headers["access-control-allow-headers"]).toLowerCase()).toContain("authorization");
 
+    // Every method the API uses must be allowed, or browsers refuse PATCH and DELETE before they are even sent.
+    const methods = String(allowed.headers["access-control-allow-methods"]).split(",").map((m) => m.trim());
+    for (const m of ["GET", "POST", "PATCH", "DELETE"]) expect(methods).toContain(m);
+    const patchPreflight = await app.inject({
+      method: "OPTIONS",
+      url: "/api/v1/auth/me",
+      headers: { origin: config.WEB_ORIGIN[0]!, "access-control-request-method": "PATCH" },
+    });
+    expect(patchPreflight.statusCode).toBe(204);
+    expect(patchPreflight.headers["access-control-allow-origin"]).toBe(config.WEB_ORIGIN[0]);
+
     const blocked = await preflight("https://evil.example");
     expect(blocked.headers["access-control-allow-origin"]).toBeUndefined();
   });

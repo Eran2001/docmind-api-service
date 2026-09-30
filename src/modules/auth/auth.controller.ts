@@ -1,9 +1,10 @@
 import "@fastify/cookie";
-import { Body, Controller, Get, HttpCode, Post, Res } from "@nestjs/common";
-import type { FastifyReply } from "fastify";
+import { Body, Controller, Delete, Get, HttpCode, Patch, Post, Req, Res } from "@nestjs/common";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Public } from "../../common/decorators/public.decorator";
+import { AppError } from "../../common/errors/app-error";
 import { respond } from "../../common/http/api-response";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import type { AuthUser } from "../../common/types/fastify";
@@ -11,7 +12,16 @@ import { InjectConfig } from "../../config/config.module";
 import { AUTH, COOKIES } from "../../config/constants";
 import type { Env } from "../../config/env.schema";
 import { AuthService, type IssuedSession } from "./auth.service";
-import { loginSchema, registerSchema, type LoginInput, type RegisterInput } from "./dto/auth.schemas";
+import {
+  changePasswordSchema,
+  loginSchema,
+  registerSchema,
+  updateProfileSchema,
+  type ChangePasswordInput,
+  type LoginInput,
+  type RegisterInput,
+  type UpdateProfileInput,
+} from "./dto/auth.schemas";
 
 @Controller("auth")
 export class AuthController {
@@ -37,20 +47,82 @@ export class AuthController {
     return respond.ok(session, "Signed in.");
   }
 
+  /**
+   * Public because the access token has usually expired by now; the httpOnly refresh cookie is the credential.
+   * Returns a NEW access token in `data` and rotates the cookie.
+   */
+  @Public()
+  @Post("refresh")
+  @HttpCode(200)
+  async refresh(@Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    try {
+      const { session, refreshToken } = await this.auth.refresh(this.refreshCookie(req));
+      this.setRefreshCookie(reply, refreshToken);
+      return respond.ok(session, "Session refreshed.");
+    } catch (err) {
+      if (err instanceof AppError && err.code === "Unauthorized") this.clearRefreshCookie(reply); // don't keep a dead cookie
+      throw err;
+    }
+  }
+
+  /** Public so it works even when the access token has expired. Always succeeds. */
+  @Public()
+  @Post("logout")
+  @HttpCode(200)
+  async logout(@Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    await this.auth.logout(this.refreshCookie(req));
+    this.clearRefreshCookie(reply);
+    return respond.ok(null, "Signed out.");
+  }
+
   /** The web app calls this on every page load with its stored token to confirm the session and get the user. */
   @Get("me")
   async me(@CurrentUser() current: AuthUser) {
-    const user = await this.auth.me(current.id);
-    return respond.ok({ user }, "OK");
+    return respond.ok({ user: await this.auth.me(current.id) });
+  }
+
+  @Patch("me")
+  async updateMe(@CurrentUser() current: AuthUser, @Body(new ZodValidationPipe(updateProfileSchema)) body: UpdateProfileInput) {
+    return respond.ok({ user: await this.auth.updateProfile(current.id, body) }, "Profile updated.");
+  }
+
+  @Post("change-password")
+  @HttpCode(200)
+  async changePassword(
+    @CurrentUser() current: AuthUser,
+    @Body(new ZodValidationPipe(changePasswordSchema)) body: ChangePasswordInput,
+    @Req() req: FastifyRequest,
+  ) {
+    await this.auth.changePassword(current.id, body, this.refreshCookie(req));
+    return respond.ok(null, "Password updated. Other devices were signed out.");
+  }
+
+  @Delete("me")
+  @HttpCode(200)
+  async deleteMe(@CurrentUser() current: AuthUser, @Res({ passthrough: true }) reply: FastifyReply) {
+    await this.auth.deleteAccount(current.id);
+    this.clearRefreshCookie(reply);
+    return respond.ok(null, "Account deleted.");
+  }
+
+  private refreshCookie(req: FastifyRequest): string | undefined {
+    return req.cookies?.[COOKIES.REFRESH] || undefined;
+  }
+
+  private cookieOptions() {
+    return {
+      httpOnly: true, // JavaScript can't read it, so an XSS bug can't steal the long-lived token
+      sameSite: "lax" as const,
+      secure: this.config.NODE_ENV === "production",
+      path: AUTH.REFRESH_COOKIE_PATH,
+    };
   }
 
   private setRefreshCookie(reply: FastifyReply, token: string): void {
-    void reply.setCookie(COOKIES.REFRESH, token, {
-      httpOnly: true, // JavaScript can't read it, so an XSS bug can't steal the long-lived token
-      sameSite: "lax",
-      secure: this.config.NODE_ENV === "production",
-      path: AUTH.REFRESH_COOKIE_PATH,
-      maxAge: AUTH.REFRESH_TTL_SECONDS,
-    });
+    void reply.setCookie(COOKIES.REFRESH, token, { ...this.cookieOptions(), maxAge: AUTH.REFRESH_TTL_SECONDS });
+  }
+
+  private clearRefreshCookie(reply: FastifyReply): void {
+    void reply.clearCookie(COOKIES.REFRESH, this.cookieOptions());
   }
 }

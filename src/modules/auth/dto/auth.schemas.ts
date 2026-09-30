@@ -23,3 +23,15 @@ export const loginSchema = z.object({
   password: z.string({ required_error: "Enter your password" }).min(1, "Enter your password"),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+export const updateProfileSchema = z.object({
+  name: registerSchema.shape.name,
+  email,
+});
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string({ required_error: "Enter your current password" }).min(1, "Enter your current password"),
+  newPassword: registerSchema.shape.password,
+});
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

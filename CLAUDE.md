@@ -11,6 +11,7 @@ Backend API and orchestration layer: **NestJS (Fastify adapter) + TypeScript str
 - Every response carries `X-Request-Id` (generate if absent) and it appears in every log line.
 - No hardcoded secrets. Config is validated with zod at startup in `src/config`; crash with a clear message if anything is missing.
 - Never log `password`, `authorization`, `cookie`.
+- Time is UTC everywhere: `timestamptz` columns, and timestamps in responses are `date.toISOString()` (ends in `Z`). Never format times or apply a time zone in the API; the web app converts to the viewer's local time (`utils/local-time.ts`).
 - Validate every request body/param. Ownership filter on every query; foreign resources return 404, not 403.
 - Every phase ships with tests (spec Section 13) and a README update.
 
@@ -72,13 +73,17 @@ failure: { code: "NotFound", error: { status, details? }, debug?, message, resou
 - Failures: throw `AppError.notFound("Collection")`, `AppError.validation(...)` etc.; the global `AllExceptionsFilter` builds the envelope. Never `throw new NotFoundException` for a missing resource (that means "route not found").
 
 ## Auth (spec 6.1, 11)
-Built: `POST /auth/register`, `POST /auth/login`, `GET /auth/me`. Still to build: `/auth/refresh` (rotation + reuse detection), `/auth/logout`, and the Settings endpoints below.
+Built: register, login, refresh, logout, `GET/PATCH/DELETE /auth/me`, `POST /auth/change-password`.
 - Routes are protected by default (global `JwtAuthGuard`); `@Public()` opens one. `@CurrentUser()` gives `{ id, role }`. The guard only verifies the token (stateless); `/auth/me` checks the user still exists.
 - register/login return `data: { accessToken, tokenType: "Bearer", expiresIn: 900, user: { id, name, email, role, createdAt } }` (register is 201 with `resourceId` = user id). The web app sends `Authorization: Bearer <accessToken>`.
 - argon2id hashing (`@node-rs/argon2`). Login failure is always "Invalid email or password." (unknown email costs the same time as a wrong password). Emails are lowercased. Duplicate email → `EmailAlreadyRegistered` 409 with `error.details.fieldErrors.email`.
 - Access JWT: HS256, 15 min, `{ sub, role }`. Refresh token: 48 random bytes base64url, only its sha256 is stored (`refresh_tokens`); it goes to the browser ONLY as an httpOnly cookie `dm_refresh` (`SameSite=Lax`, `secure` in production, path `/api/v1/auth`), never in the JSON.
 - CORS: `WEB_ORIGIN` is a comma-separated allowlist (e.g. `http://localhost:3000,http://localhost:8080`); credentials on. Mutations are JSON-only except the upload route.
-- Settings endpoints the web needs: `PATCH /auth/me {name,email}`, `POST /auth/change-password {currentPassword,newPassword}` (revoke other sessions), `DELETE /auth/me`.
+- `/auth/refresh` and `/auth/logout` are `@Public()` (the access token has usually expired; the httpOnly cookie is the credential). Refresh ROTATES: the old token is revoked atomically (`UPDATE ... WHERE revoked_at IS NULL`, so only one of two racing calls wins).
+  A revoked token shown again after `AUTH.REFRESH_REUSE_GRACE_MS` (10 s) = theft → revoke ALL of the user's tokens; inside the window it is a benign race → 401 only.
+- NEVER answer a wrong CURRENT PASSWORD with 401: the web app treats any 401 as "session over" and signs the user out. Use `ValidationFailed` (400) with `fieldErrors.currentPassword`.
+- CORS must list every method the API uses (`app.setup.ts`): Fastify's default (GET, HEAD, POST) silently blocks PATCH and DELETE from the browser.
+- Deleting an account relies on the foreign-key cascades in the schema; when uploads are stored on disk (Phase 3), `AuthService.deleteAccount` must also remove the user's files.
 
 ## Documents & ingestion (spec 6.2)
 - Upload: allow pdf/docx/txt/md, check magic bytes, max 20 MB, max 50 docs per collection, sha256 dedupe → 409 `DUPLICATE_DOCUMENT`.

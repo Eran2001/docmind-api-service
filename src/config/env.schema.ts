@@ -20,6 +20,8 @@ export const envSchema = z.object({
     .string({ required_error: "is required (redis://host:6379)" })
     .regex(/^rediss?:\/\//, "must start with redis:// or rediss://"),
 
+  // Lifetime of an access token. 15 minutes in production; shorter values are handy for testing the refresh flow.
+  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(1).max(86_400).default(900),
   JWT_SECRET: z
     .string({ required_error: "is required (generate with: openssl rand -hex 32)" })
     .min(32, "must be at least 32 characters"),
