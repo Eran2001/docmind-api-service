@@ -37,6 +37,9 @@ export class AppError extends Error {
   static rateLimited(message = "Too many requests. Try again shortly.") {
     return new AppError("RateLimited", message);
   }
+  static unavailable(message = "A required service is unavailable. Try again shortly.") {
+    return new AppError("ServiceUnavailable", message);
+  }
   static aiService(message = "The AI service is unavailable.") {
     return new AppError("AiServiceFailed", message);
   }

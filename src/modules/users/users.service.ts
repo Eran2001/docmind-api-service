@@ -4,7 +4,7 @@ import { UsersRepository, type UserRow } from "./users.repository";
 
 /** What the API ever tells a client about a user: never the password hash. */
 export interface PublicUser {
-  id: string;
+  resourceId: string;
   name: string;
   email: string;
   role: "user" | "admin";
@@ -13,7 +13,7 @@ export interface PublicUser {
 
 export function toPublicUser(row: UserRow): PublicUser {
   return {
-    id: row.id,
+    resourceId: row.id,
     name: row.name,
     email: row.email,
     role: row.role === "admin" ? "admin" : "user",

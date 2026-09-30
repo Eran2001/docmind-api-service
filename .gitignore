@@ -6,3 +6,4 @@ storage
 .env.local
 *.tsbuildinfo
 .DS_Store
+.test-storage

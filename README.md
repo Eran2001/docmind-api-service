@@ -30,8 +30,9 @@ web (Next.js) ──HTTPS/SSE──► API (this) ──internal HTTP──► A
 |---|---|---|
 | 1 | Foundation: config, errors, logging, database schema + migration, Redis + queues, health check | Done |
 | 2 | Auth: register, login, current user, refresh (rotation + reuse detection), logout, edit profile, change password, delete account | Done |
-| 3 | Collections and document upload (queues the ingest job) | Next |
-| 4 | Ingestion pipeline (needs the AI service) | |
+| 3 | Collections (create, list + search, rename, delete) | Done |
+| 3 | Documents: upload, add URL, list, delete, reprocess (saved to disk, queued for ingestion) | Done |
+| 4 | Ingestion pipeline: the worker that parses, chunks and embeds queued documents (needs the AI service) | Next |
 | 5 | Chat: hybrid search, streaming answers, citations | |
 | 6 | Feedback and usage/cost dashboards | |
 | 7 | Evals | |
@@ -58,11 +59,17 @@ npm run start:dev             # http://localhost:4000/api/v1/health
 | `start:dev` | Run with file watching |
 | `build` / `start` | Compile to `dist/` / run the compiled server |
 | `typecheck` / `lint` | `tsc --noEmit` / ESLint |
-| `test` / `test:watch` | Vitest (unit and e2e; no Postgres or Redis needed) |
+| `test` / `test:watch` | Vitest. Most specs need nothing running; the collections spec runs against a real Postgres test database (`docmind_test`, created and migrated automatically) and is skipped if Postgres is down |
 | `db:generate` | Create a migration from changes to `src/database/schema.ts` |
 | `db:migrate` | Apply migrations to `DATABASE_URL` |
 | `db:studio` | Browse the database in Drizzle Studio |
 | `infra:up` / `infra:down` | Start / stop Postgres and Redis (docker compose) |
+
+## Naming: `resourceId`, never `id`
+
+Every entity the API returns identifies itself as **`resourceId`** (`{ "resourceId": "...", "name": "...", ... }` for a user, collection or document), and route params are
+`:resourceId`. The same word is used at the top of every response for the record a request created or changed. Database columns stay `id` (internal), and references to
+another entity keep their own names (`collectionId`, `userId`).
 
 ## Endpoints
 
@@ -70,6 +77,16 @@ npm run start:dev             # http://localhost:4000/api/v1/health
 |---|---|---|
 | POST | `/api/v1/auth/register` | body `{ name, email, password }` → 201, `data: { accessToken, tokenType, expiresIn, user }`, `resourceId` = user id, sets the httpOnly `dm_refresh` cookie. Duplicate email → 409 `EmailAlreadyRegistered`. |
 | POST | `/api/v1/auth/login` | body `{ email, password }` → 200, same `data` and cookie. Any failure → 401 `Unauthorized` "Invalid email or password." |
+| POST | `/api/v1/collections` | protected; body `{ name (1-60), description? (max 500) }` → 201, `data: { result: true }`, `resourceId` = the new id. |
+| GET | `/api/v1/collections/:resourceId` | protected; one collection (404 if missing, malformed or not yours). |
+| GET | `/api/v1/collections?search=` | protected; yours only, most recently updated first, each with `documentCount`. `search` matches name or description, case-insensitive. → `data: { result: [ ... ] }` |
+| PATCH | `/api/v1/collections/:resourceId` | protected; body `{ name?, description? }` (`""` or `null` clears the description) → `data: { result: true }`. Someone else's or a missing id → 404 `NotFound`. |
+| DELETE | `/api/v1/collections/:resourceId` | protected; deletes the collection and, by cascade, its documents, chunks and chats. 404 if it isn't yours. |
+| GET | `/api/v1/collections/:resourceId/documents` | protected; the collection's documents, newest first, with their `status` (`queued`, `processing`, `ready`, `failed`). |
+| POST | `/api/v1/collections/:resourceId/documents` | protected; `multipart/form-data` with one `file` field. **202** `{ result: true }`, `resourceId` = the new document id. PDF, DOCX, TXT or MD (checked by the file's bytes), max `MAX_UPLOAD_MB`. Duplicate bytes in the collection → 409 `DuplicateDocument`; 50 documents → 422 `LimitReached`; bad/empty/oversize file → 400 `ValidationFailed` on `file`. |
+| POST | `/api/v1/collections/:resourceId/documents/url` | protected; body `{ url }` (http/https). 202, same response. Same page (any case, with or without `#fragment`) → 409. |
+| POST | `/api/v1/documents/:resourceId/reprocess` | protected; back to `queued` and re-queued (a document already queued/processing is left alone). 202. |
+| DELETE | `/api/v1/documents/:resourceId` | protected; deletes the document, its chunks and its file on disk. |
 | POST | `/api/v1/auth/refresh` | public; the browser sends the httpOnly `dm_refresh` cookie. → `data`: a NEW access token (same shape as login) and a rotated cookie. Each refresh token works once. |
 | POST | `/api/v1/auth/logout` | public; revokes this browser's refresh token and clears the cookie. Always 200. |
 | GET | `/api/v1/auth/me` | needs `Authorization: Bearer <accessToken>` → `data: { user }`; otherwise 401 `Unauthorized`. |
@@ -106,7 +123,9 @@ Every response has the same keys in the same order. `code` is `OK` for every suc
   "requestId": "1e75d3c5-..." }
 ```
 
-Created (201) and accepted (202) responses are still `code: "OK"`, with the new id in `resourceId`.
+**Writes don't send the record back.** A create, update or delete answers `data: { result: true }`; a create puts the new id in `resourceId`
+(so `POST /collections` gives `201`, `data: { "result": true }`, `resourceId: "<new id>"`). Fetch the record, or refetch the list, if you need it.
+Created (201) and accepted (202) responses are still `code: "OK"`.
 
 | Failure `code` | HTTP | Meaning |
 |---|---|---|
@@ -139,7 +158,7 @@ Validated with zod at startup; the server refuses to start and lists every probl
 | `API_PORT` | `4000` | |
 | `WEB_ORIGIN` | `http://localhost:3000` | allowed CORS origin(s), comma-separated (credentials allowed) |
 | `AI_SERVICE_URL` | `http://localhost:8000` | |
-| `STORAGE_DIR` / `MAX_UPLOAD_MB` | `./storage` / `20` | used from Phase 3 |
+| `STORAGE_DIR` / `MAX_UPLOAD_MB` | `./storage` / `20` | uploads are saved at `STORAGE_DIR/<userId>/<documentId>.<ext>`; max upload size in MB |
 | `LOG_LEVEL` | `info` | pretty logs in development, JSON otherwise |
 
 ## Structure
@@ -150,11 +169,19 @@ src/
 ├── config/          env schema, constants (retrieval settings, queue names)
 ├── common/          errors (AppError + exception filter), pipes (zod), utils
 ├── database/        Drizzle schema (all tables), database module, migrations/
-├── integrations/    ai (Python client), redis
+├── integrations/    ai (Python client), redis, storage (uploaded files on disk)
 ├── queues/          BullMQ connection and the ingest / eval queues
-└── modules/         one folder per feature (health so far)
+└── modules/         one folder per feature: health, auth, users, collections, documents
 test/                e2e tests
 ```
+
+## What happens to an upload
+
+1. The file's bytes decide what it is (PDF `%PDF-`, DOCX = a zip containing `word/document.xml`, TXT/MD = valid UTF-8 without NUL bytes); the name and the browser's mime type are only hints.
+2. Duplicate check (sha256 of the bytes, per collection) and the 50-documents limit.
+3. The file is saved under a name we generate (never the uploaded name), a `documents` row is created as `queued`, and an `ingest-document` job `{ documentId }` goes on the Redis queue.
+   If the queue can't take it, everything is undone and the API answers 503.
+4. **Nothing processes the job yet:** the worker and the AI service come in the next phase, so documents stay `queued` for now.
 
 ## Decisions
 

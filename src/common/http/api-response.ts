@@ -5,6 +5,8 @@
  *   failure:  { code: "NotFound", error, debug?, message, resourceId, requestId }
  *
  *   data (single):  { ...object }
+ *   data (a write): { result: true }              creates, updates and deletes don't echo the record back; a create puts the new
+ *                                                 id in `resourceId`, and clients fetch the record (or refresh the list) if they need it
  *   data (list):    { result: [ {...}, {...} ], total?, nextCursor? }
  *   error:          { status, details? }          debug (not in production): { name, message, stack, method, path, timestamp }
  *
@@ -91,7 +93,22 @@ export const respond = {
     return new ApiResponse({ data: { result, ...meta } });
   },
 
-  /** 201 for a newly created resource; `resourceId` is the new id. Still code "OK". */
+  /** 200 `{ result: true }` for a write that succeeded (update, delete, sign out ...). `resourceId` = what was changed. */
+  done(message = "OK", resourceId?: string): ApiResponse<{ result: true }> {
+    return new ApiResponse({ data: { result: true as const }, message, resourceId });
+  },
+
+  /** 201 `{ result: true }` for a create. The new id is `resourceId`; the record itself is not sent back. */
+  createdDone(resourceId: string, message = "Created"): ApiResponse<{ result: true }> {
+    return new ApiResponse({ data: { result: true as const }, status: 201, message, resourceId });
+  },
+
+  /** 202 `{ result: true }` for a create whose work continues in the background (an upload). The new id is `resourceId`. */
+  acceptedDone(resourceId: string, message = "Accepted"): ApiResponse<{ result: true }> {
+    return new ApiResponse({ data: { result: true as const }, status: 202, message, resourceId });
+  },
+
+  /** 201 for a newly created resource; `resourceId` is the new id. Still code "OK". (Use createdDone unless the caller needs the data.) */
   created<T>(data: T, resourceId?: string, message = "Created"): ApiResponse<T> {
     return new ApiResponse({ data, status: 201, message, resourceId });
   },

@@ -3,6 +3,7 @@ import { hash, verify } from "@node-rs/argon2";
 
 import { AppError } from "../../common/errors/app-error";
 import { AUTH } from "../../config/constants";
+import { StorageService } from "../../integrations/storage/storage.service";
 import { toPublicUser, UsersService, type PublicUser } from "../users/users.service";
 import type { ChangePasswordInput, LoginInput, RegisterInput, UpdateProfileInput } from "./dto/auth.schemas";
 import { RefreshTokensRepository } from "./refresh-tokens.repository";
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly users: UsersService,
     private readonly tokens: TokensService,
     private readonly refreshTokens: RefreshTokensRepository,
+    private readonly storage: StorageService,
   ) {}
 
   async register(input: RegisterInput): Promise<IssuedSession> {
@@ -133,16 +135,17 @@ export class AuthService {
   }
 
   async deleteAccount(userId: string): Promise<void> {
-    // The foreign keys cascade, so the user's tokens, collections, documents, chats and evals go with the row.
-    // (When uploads are stored on disk, their files are removed here too.)
+    // The foreign keys cascade, so the user's tokens, collections, documents, chats and evals go with the row;
+    // the uploaded files are on disk and are removed here.
     await this.users.delete(userId);
+    await this.storage.removeUserFiles(userId).catch(() => undefined);
   }
 
   private async issue(user: PublicUser): Promise<IssuedSession> {
-    const accessToken = await this.tokens.signAccess({ id: user.id, role: user.role });
+    const accessToken = await this.tokens.signAccess({ id: user.resourceId, role: user.role });
     const refreshToken = this.tokens.newRefreshToken();
     await this.refreshTokens.create({
-      userId: user.id,
+      userId: user.resourceId,
       tokenHash: this.tokens.hashRefreshToken(refreshToken),
       expiresAt: new Date(Date.now() + AUTH.REFRESH_TTL_SECONDS * 1000),
     });

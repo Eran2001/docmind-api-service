@@ -14,6 +14,11 @@ describe("respond", () => {
     expect(respond.list([], { total: 0, nextCursor: null }).data).toEqual({ result: [], total: 0, nextCursor: null });
   });
 
+  it("done and createdDone send { result: true } and never the record", () => {
+    expect(respond.done("Deleted", "id-1")).toMatchObject({ status: undefined, code: "OK", message: "Deleted", resourceId: "id-1", data: { result: true } });
+    expect(respond.createdDone("id-2", "Collection created.")).toMatchObject({ status: 201, code: "OK", resourceId: "id-2", data: { result: true } });
+  });
+
   it("created and accepted set the status and resource id but keep code OK", () => {
     expect(respond.created({}, "id-1")).toMatchObject({ status: 201, code: "OK", message: "Created", resourceId: "id-1" });
     expect(respond.accepted({}, "id-2")).toMatchObject({ status: 202, code: "OK", message: "Accepted", resourceId: "id-2" });

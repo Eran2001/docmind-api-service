@@ -9,8 +9,11 @@ import { APP_CONFIG, ConfigModule } from "./config/config.module";
 import type { Env } from "./config/env.schema";
 import { DatabaseModule } from "./database/database.module";
 import { AiModule } from "./integrations/ai/ai.module";
+import { StorageModule } from "./integrations/storage/storage.module";
 import { RedisModule } from "./integrations/redis/redis.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { CollectionsModule } from "./modules/collections/collections.module";
+import { DocumentsModule } from "./modules/documents/documents.module";
 import { HealthModule } from "./modules/health/health.module";
 import { QueueModule } from "./queues/queue.module";
 
@@ -55,7 +58,10 @@ import { QueueModule } from "./queues/queue.module";
     RedisModule,
     QueueModule,
     AiModule,
+    StorageModule,
     AuthModule,
+    CollectionsModule,
+    DocumentsModule,
     HealthModule,
   ],
   providers: [

@@ -35,7 +35,7 @@ export class AuthController {
   async register(@Body(new ZodValidationPipe(registerSchema)) body: RegisterInput, @Res({ passthrough: true }) reply: FastifyReply) {
     const { session, refreshToken } = await this.auth.register(body);
     this.setRefreshCookie(reply, refreshToken);
-    return respond.created(session, session.user.id, "Account created.");
+    return respond.created(session, session.user.resourceId, "Account created.");
   }
 
   @Public()
@@ -72,7 +72,7 @@ export class AuthController {
   async logout(@Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
     await this.auth.logout(this.refreshCookie(req));
     this.clearRefreshCookie(reply);
-    return respond.ok(null, "Signed out.");
+    return respond.done("Signed out.");
   }
 
   /** The web app calls this on every page load with its stored token to confirm the session and get the user. */
@@ -94,7 +94,7 @@ export class AuthController {
     @Req() req: FastifyRequest,
   ) {
     await this.auth.changePassword(current.id, body, this.refreshCookie(req));
-    return respond.ok(null, "Password updated. Other devices were signed out.");
+    return respond.done("Password updated. Other devices were signed out.", current.id);
   }
 
   @Delete("me")
@@ -102,7 +102,7 @@ export class AuthController {
   async deleteMe(@CurrentUser() current: AuthUser, @Res({ passthrough: true }) reply: FastifyReply) {
     await this.auth.deleteAccount(current.id);
     this.clearRefreshCookie(reply);
-    return respond.ok(null, "Account deleted.");
+    return respond.done("Account deleted.", current.id);
   }
 
   private refreshCookie(req: FastifyRequest): string | undefined {

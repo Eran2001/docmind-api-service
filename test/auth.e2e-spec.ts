@@ -12,6 +12,7 @@ import { APP_CONFIG } from "../src/config/config.module";
 import { loadEnv } from "../src/config/env.schema";
 import { AuthController } from "../src/modules/auth/auth.controller";
 import { AuthService } from "../src/modules/auth/auth.service";
+import { StorageService } from "../src/integrations/storage/storage.service";
 import { RefreshTokensRepository, type RefreshTokenRow } from "../src/modules/auth/refresh-tokens.repository";
 import { TokensService } from "../src/modules/auth/tokens.service";
 import { UsersRepository, type UserRow } from "../src/modules/users/users.repository";
@@ -92,6 +93,7 @@ describe("auth", () => {
         UsersService,
         { provide: UsersRepository, useValue: users },
         { provide: RefreshTokensRepository, useValue: refresh },
+        { provide: StorageService, useValue: { removeUserFiles: async () => undefined } },
         { provide: APP_CONFIG, useValue: config },
         { provide: APP_FILTER, useClass: AllExceptionsFilter },
         { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
@@ -126,7 +128,8 @@ describe("auth", () => {
       expect(body.data.accessToken).toMatch(/^[\w-]+\.[\w-]+\.[\w-]+$/);
       expect(body.data).toMatchObject({ tokenType: "Bearer", expiresIn: 900 });
       expect(body.data.user).toMatchObject({ name: "Maya Chen", email: "maya.chen@acme.com", role: "user" });
-      expect(body.data.user.id).toBe(body.resourceId);
+      expect(body.data.user.resourceId).toBe(body.resourceId);
+      expect(body.data.user).not.toHaveProperty("id"); // the public id is called resourceId
       expect(body.data.user).not.toHaveProperty("passwordHash");
       expect(JSON.stringify(body)).not.toContain("argon2");
     });
@@ -283,7 +286,7 @@ describe("auth", () => {
       expect(rotated.value).not.toBe(first.refreshToken);
       expect(rotated.line).toMatch(/HttpOnly/i);
       // the old one is revoked, the new one is the only active session
-      expect(refresh.active(first.user.id)).toHaveLength(1);
+      expect(refresh.active(first.user.resourceId)).toHaveLength(1);
     });
 
     it("works with the new cookie, and only once per cookie", async () => {
@@ -303,7 +306,7 @@ describe("auth", () => {
       const unknown = await call("POST", "/refresh", undefined, withCookie("not-a-real-token"));
       expect(unknown.statusCode).toBe(401);
       expect(String(unknown.headers["set-cookie"])).toMatch(/dm_refresh=;/); // cleared
-      refresh.active(user.id)[0]!.expiresAt = new Date(Date.now() - 1000);
+      refresh.active(user.resourceId)[0]!.expiresAt = new Date(Date.now() - 1000);
       expect((await call("POST", "/refresh", undefined, withCookie(refreshToken))).statusCode).toBe(401);
     });
 
@@ -324,7 +327,7 @@ describe("auth", () => {
       refresh.rows.find((r) => r.revokedAt)!.revokedAt = new Date(Date.now() - 60_000);
       const replay = await call("POST", "/refresh", undefined, withCookie(first.refreshToken));
       expect(replay.statusCode).toBe(401);
-      expect(refresh.active(first.user.id)).toHaveLength(0);
+      expect(refresh.active(first.user.resourceId)).toHaveLength(0);
       // neither the legitimate new cookie nor the other device can refresh any more
       expect((await call("POST", "/refresh", undefined, withCookie(refreshCookieOf(rotated)!.value))).statusCode).toBe(401);
       expect((await call("POST", "/refresh", undefined, withCookie(refreshCookieOf(other)!.value))).statusCode).toBe(401);
@@ -342,9 +345,9 @@ describe("auth", () => {
       const { refreshToken, user } = await register();
       const res = await call("POST", "/logout", undefined, withCookie(refreshToken));
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ code: "OK", message: "Signed out.", data: null });
+      expect(res.json()).toMatchObject({ code: "OK", message: "Signed out.", data: { result: true } });
       expect(String(res.headers["set-cookie"])).toMatch(/dm_refresh=;/);
-      expect(refresh.active(user.id)).toHaveLength(0);
+      expect(refresh.active(user.resourceId)).toHaveLength(0);
       expect((await call("POST", "/refresh", undefined, withCookie(refreshToken))).statusCode).toBe(401);
     });
 
@@ -395,7 +398,7 @@ describe("auth", () => {
       const { token, refreshToken } = await register();
       const res = await change(token, valid.password, "a-brand-new-password", refreshToken);
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ code: "OK", data: null });
+      expect(res.json()).toMatchObject({ code: "OK", data: { result: true } });
       expect((await post("/login", { email: valid.email, password: valid.password })).statusCode).toBe(401);
       expect((await post("/login", { email: valid.email, password: "a-brand-new-password" })).statusCode).toBe(200);
       expect(users.rows[0]?.passwordHash).toMatch(/^\$argon2id\$/);
@@ -433,7 +436,7 @@ describe("auth", () => {
       const { token, refreshToken } = await register();
       const res = await call("DELETE", "/me", undefined, authed(token));
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ code: "OK", message: "Account deleted.", data: null });
+      expect(res.json()).toMatchObject({ code: "OK", message: "Account deleted.", data: { result: true } });
       expect(String(res.headers["set-cookie"])).toMatch(/dm_refresh=;/);
       expect(users.rows).toHaveLength(0);
       expect((await me(token)).statusCode).toBe(401);

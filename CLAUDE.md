@@ -56,6 +56,10 @@ Rules: controllers are thin (parse DTO → call service → return). Business lo
 other's repositories; go through the exporting module's service. Cross-cutting behaviour (auth, errors, request-id, rate limits) is global via guards/filters/middleware.
 API types/zod schemas are mirrored in the web repo's `src/types` and `src/schemas`. Keep DTOs and response shapes in sync with them (copy per phase).
 
+## Naming: `resourceId`, never `id`
+In API JSON every entity identifies itself as `resourceId` (Public* DTOs map `row.id` → `resourceId`), route params are `:resourceId`, and the envelope's top-level `resourceId` is the id of what a request created/changed.
+Database columns and internal types keep `id`; references to other entities keep their names (`collectionId`, `userId`). New endpoints follow this from the start. The JWT's `sub` claim is the standard name and stays.
+
 ## Response envelope (differs from spec 8.1)
 Every response, success or failure, has the same keys in the same order (see `common/http/api-response.ts`):
 ```
@@ -67,10 +71,18 @@ failure: { code: "NotFound", error: { status, details? }, debug?, message, resou
   `RateLimited` 429 · `InternalError` 500 · `AiServiceFailed` 502 · `ServiceUnavailable` 503. Add new ones in `common/errors/error-codes.ts` (PascalCase).
 - `message` is human readable and sits OUTSIDE `error`. `error.details` carries structured info (e.g. zod `fieldErrors`). `debug` (original message, first stack frames, method, path) is
   developer-only and is never sent when `NODE_ENV=production`. `resourceId` is the id of the created/affected resource, else `null`. `requestId` equals the `X-Request-Id` header.
+- WRITES DON'T ECHO THE RECORD: a create/update/delete answers `data: { result: true }` (`respond.createdDone(id, msg)` = 201 with the new id in `resourceId`; `respond.done(msg, id?)` = 200). Clients fetch the record, or refetch the list, if they need it.
+  Reads (`respond.ok` / `respond.list`) return data; register/login/refresh return the session, and `PATCH /auth/me` returns `{ user }` because the web app needs the updated user.
 - Success helpers: `respond.ok(obj)` → `data: { ...obj }` · `respond.list(rows, { total?, nextCursor? })` → `data: { result: [ ... ], total?, nextCursor? }` (lists ALWAYS use `data.result`)
   · `respond.created(obj, id)` (201) · `respond.accepted(obj, id)` (202, queued work) · `respond.of({ status, code, message, data })` for anything else.
 - A plain returned value is wrapped as `respond.ok`; returning nothing (`@HttpCode(204)`) sends no body; streams and downloads use `@RawResponse()`.
 - Failures: throw `AppError.notFound("Collection")`, `AppError.validation(...)` etc.; the global `AllExceptionsFilter` builds the envelope. Never `throw new NotFoundException` for a missing resource (that means "route not found").
+
+## Collections (built)
+`POST/GET/PATCH/DELETE /collections`, `GET /collections?search=`. Search is a case-insensitive contains on name OR description, with `%` `_` `\` escaped. Lists are `data.result`.
+- Every repository query filters by `user_id`; a collection that is missing, malformed (`UuidParamPipe`) or someone else's is `NotFound` 404, never 403. Other modules call `CollectionsService.requireOwned(userId, id)` before touching a collection.
+- In a Drizzle `select`, columns inside a `sql` template are printed WITHOUT their table, so a correlated subquery must spell out the table names (see `documentCount`).
+- Deleting a collection cascades in Postgres; once uploads are stored on disk, `CollectionsService.remove` must also delete their files.
 
 ## Auth (spec 6.1, 11)
 Built: register, login, refresh, logout, `GET/PATCH/DELETE /auth/me`, `POST /auth/change-password`.
@@ -84,6 +96,12 @@ Built: register, login, refresh, logout, `GET/PATCH/DELETE /auth/me`, `POST /aut
 - NEVER answer a wrong CURRENT PASSWORD with 401: the web app treats any 401 as "session over" and signs the user out. Use `ValidationFailed` (400) with `fieldErrors.currentPassword`.
 - CORS must list every method the API uses (`app.setup.ts`): Fastify's default (GET, HEAD, POST) silently blocks PATCH and DELETE from the browser.
 - Deleting an account relies on the foreign-key cascades in the schema; when uploads are stored on disk (Phase 3), `AuthService.deleteAccount` must also remove the user's files.
+
+## Documents (built: upload, URL, list, delete, reprocess)
+- Uploads are `multipart/form-data` (`@fastify/multipart`, registered in `app.setup.ts` with the `MAX_UPLOAD_MB` limit). Type detection is by BYTES (`modules/documents/file-type.ts`); stored names are built from ids (`StorageService`), never from the upload; filenames shown are sanitised.
+- Order in `DocumentsService`: ownership (404) → detect type → sha256 dedupe (409) → 50-document limit (422) → write file → insert row (unique `(collection_id, content_hash)` decides a race) → enqueue. If the enqueue fails or times out (3 s), undo the row and the file and answer 503. Never leave a `queued` document that has no job.
+- Responses follow the write rule: 202 `{ result: true }` + `resourceId` (`respond.acceptedDone`). Deleting a document/collection/account also deletes the files (`StorageService`).
+- Test specs that hit the database share `docmind_test` and truncate it, so `fileParallelism` is off in `vitest.config.mts`. Keep it off.
 
 ## Documents & ingestion (spec 6.2)
 - Upload: allow pdf/docx/txt/md, check magic bytes, max 20 MB, max 50 docs per collection, sha256 dedupe → 409 `DUPLICATE_DOCUMENT`.
@@ -112,4 +130,4 @@ Chunks carry `tsv` for keyword search and `embedding vector(1536)`.
 ## Commands
 `npm run start:dev` · `npm run infra:up` (Postgres + Redis) · `npm run db:generate` then `npm run db:migrate` · `npm test` · `npm run lint` · `npm run typecheck`
 Schema changes: edit `src/database/schema.ts`, run `db:generate`, review the SQL, then `db:migrate`. Never edit an applied migration.
-Run typecheck, lint and tests before finishing any change. `app.setup.ts` holds the shared app setup, so e2e tests exercise the real one.
+Database specs (`test/*.e2e-spec.ts` that use `inject("dbReady")`) run against `docmind_test`, never the dev database (the setup refuses a name that does not end in `_test`). Run typecheck, lint and tests before finishing any change. `app.setup.ts` holds the shared app setup, so e2e tests exercise the real one.

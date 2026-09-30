@@ -1,5 +1,6 @@
 import fastifyCookie from "@fastify/cookie";
 import fastifyHelmet from "@fastify/helmet";
+import fastifyMultipart from "@fastify/multipart";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
@@ -33,6 +34,8 @@ export async function configureApp(app: NestFastifyApplication, config: Env): Pr
   app.setGlobalPrefix(API_PREFIX);
   await app.register(fastifyHelmet);
   await app.register(fastifyCookie);
+  // File uploads (one file per request). The size limit makes Fastify stop reading an oversized upload early.
+  await app.register(fastifyMultipart, { limits: { fileSize: config.MAX_UPLOAD_MB * 1024 * 1024, files: 1, fields: 5 } });
   app.enableCors({
     origin: config.WEB_ORIGIN,
     credentials: true,

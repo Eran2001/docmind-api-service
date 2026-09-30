@@ -5,7 +5,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    // The database specs share one Postgres (docmind_test) and empty it between tests, so files must not run at the same time.
+    fileParallelism: false,
     include: ["src/**/*.spec.ts", "test/**/*.e2e-spec.ts"],
+    globalSetup: ["test/setup/global-setup.ts"],
     setupFiles: ["reflect-metadata"],
     env: {
       NODE_ENV: "test",
@@ -16,6 +19,8 @@ export default defineConfig({
       INTERNAL_API_KEY: "test-internal-key-1234",
       WEB_ORIGIN: "http://localhost:3000",
       AI_SERVICE_URL: "http://localhost:8000",
+      STORAGE_DIR: "./.test-storage",
+      MAX_UPLOAD_MB: "1",
     },
   },
   plugins: [swc.vite({ module: { type: "es6" } })],
