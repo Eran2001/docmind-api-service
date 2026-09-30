@@ -2,7 +2,10 @@ node_modules
 .next
 .env
 .env.local
-.env.example
+
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+dist
+coverage
+storage
