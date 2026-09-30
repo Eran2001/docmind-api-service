@@ -18,7 +18,7 @@ Backend API and orchestration layer: **NestJS (Fastify adapter) + TypeScript str
 ## Stack
 Node 22 LTS · NestJS 11 on `@nestjs/platform-fastify` · TypeScript strict (no `any`) · Drizzle ORM + drizzle-kit · Postgres 16 + pgvector
 zod (validation, via `nestjs-zod`) · BullMQ via `@nestjs/bullmq` + Redis 7 · `@nestjs/throttler` (Redis store) · `@fastify/helmet`, `@fastify/cookie`, `@fastify/multipart`
-`@nestjs/jwt` + argon2 · `nestjs-pino` (logging, redact `password`, `authorization`, `cookie`) · Vitest / Jest + supertest · pnpm
+`@nestjs/jwt` + argon2 · `nestjs-pino` (logging, redact `password`, `authorization`, `cookie`) · Vitest / Jest + supertest · npm
 
 ## Layout
 ```
@@ -53,7 +53,7 @@ docmind-api-service/
 ```
 Rules: controllers are thin (parse DTO → call service → return). Business logic in services, ALL SQL in repositories (Drizzle). Modules never import each
 other's repositories; go through the exporting module's service. Cross-cutting behaviour (auth, errors, request-id, rate limits) is global via guards/filters/middleware.
-Shared API types/zod schemas come from `@docmind/shared` (defined in the web repo's `packages/shared`); decide how it is linked (workspace, git dep or copy) before Phase 1.
+API types/zod schemas are mirrored in the web repo's `src/shared`. Keep DTOs and response shapes in sync with it (copy or publish a package; decide before Phase 1).
 
 ## Auth (spec 6.1, 11)
 - argon2id password hashing; login failure is always "Invalid email or password".
@@ -88,4 +88,4 @@ Postgres 16 + pgvector (`vector`, `pgcrypto` extensions). All tables + indexes c
 Chunks carry `tsv` for keyword search and `embedding vector(1536)`.
 
 ## Commands
-Add as scripts are created: `pnpm start:dev` · `pnpm worker:dev` · `pnpm test` · `pnpm lint` · `pnpm db:migrate` · `pnpm db:seed`. Run lint + typecheck before finishing any change.
+Add as scripts are created: `npm run start:dev` · `npm run worker:dev` · `npm test` · `npm run lint` · `npm run db:migrate` · `npm run db:seed`. Run lint + typecheck before finishing any change.
