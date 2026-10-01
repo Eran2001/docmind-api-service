@@ -52,11 +52,18 @@ const toPublic = (row: DocumentRow): PublicDocument => ({
 });
 
 const notFound = () => AppError.notFound("Document");
-const isUniqueViolation = (err: unknown) => (err as { code?: string }).code === "23505";
-const sha256 = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
+const isUniqueViolation = (err: unknown) =>
+  (err as { code?: string }).code === "23505";
+const sha256 = (value: Buffer | string) =>
+  createHash("sha256").update(value).digest("hex");
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
-  Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
+  Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), ms),
+    ),
+  ]);
 
 @Injectable()
 export class DocumentsService {
@@ -75,14 +82,31 @@ export class DocumentsService {
     return (await this.documents.list(userId, collectionId)).map(toPublic);
   }
 
+  async getChunk(userId: string, documentId: string, chunkId: string) {
+    const detail = await this.documents.findChunkDetail(
+      userId,
+      documentId,
+      chunkId,
+    );
+    if (!detail) throw AppError.notFound("Chunk");
+    return detail;
+  }
+
   /** Stores the file, records it as `queued`, and queues the ingest job. Returns the new document id. */
-  async uploadFile(userId: string, collectionId: string, upload: { filename: string; data: Buffer }): Promise<string> {
+  async uploadFile(
+    userId: string,
+    collectionId: string,
+    upload: { filename: string; data: Buffer },
+  ): Promise<string> {
     await this.collections.requireOwned(userId, collectionId);
 
     const filename = cleanFilename(upload.filename);
     const file = detectFile(upload.data, filename);
     if (!file) {
-      const message = upload.data.length === 0 ? "That file is empty." : "Unsupported file. Upload a PDF, DOCX, TXT or MD file.";
+      const message =
+        upload.data.length === 0
+          ? "That file is empty."
+          : "Unsupported file. Upload a PDF, DOCX, TXT or MD file.";
       throw AppError.validation(message, { fieldErrors: { file: [message] } });
     }
 
@@ -90,7 +114,12 @@ export class DocumentsService {
     await this.assertCanAdd(collectionId, contentHash, filename);
 
     const id = randomUUID();
-    const storagePath = await this.storage.save(userId, id, file.extension, upload.data);
+    const storagePath = await this.storage.save(
+      userId,
+      id,
+      file.extension,
+      upload.data,
+    );
     try {
       await this.documents.create({
         id,
@@ -107,7 +136,10 @@ export class DocumentsService {
     } catch (err) {
       await this.storage.remove(storagePath).catch(() => undefined);
       // Two identical uploads racing past the check: the unique (collection, hash) index decides.
-      if (isUniqueViolation(err)) throw AppError.duplicate(`“${filename}” is already in this collection.`);
+      if (isUniqueViolation(err))
+        throw AppError.duplicate(
+          `“${filename}” is already in this collection.`,
+        );
       throw err;
     }
 
@@ -119,21 +151,35 @@ export class DocumentsService {
   }
 
   /** Records a web page as `queued`. The AI service fetches it later (and is the one that blocks private addresses). */
-  async addUrl(userId: string, collectionId: string, input: AddUrlInput): Promise<string> {
+  async addUrl(
+    userId: string,
+    collectionId: string,
+    input: AddUrlInput,
+  ): Promise<string> {
     await this.collections.requireOwned(userId, collectionId);
 
     const url = new URL(input.url);
     url.hash = "";
     const href = url.href;
-    const title = `${url.host}${url.pathname === "/" ? "" : url.pathname}`.slice(0, 200);
+    const title =
+      `${url.host}${url.pathname === "/" ? "" : url.pathname}`.slice(0, 200);
     const contentHash = sha256(`url:${href}`);
     await this.assertCanAdd(collectionId, contentHash, href);
 
     const id = randomUUID();
     try {
-      await this.documents.create({ id, collectionId, userId, sourceType: "url", title, sourceUrl: href, contentHash });
+      await this.documents.create({
+        id,
+        collectionId,
+        userId,
+        sourceType: "url",
+        title,
+        sourceUrl: href,
+        contentHash,
+      });
     } catch (err) {
-      if (isUniqueViolation(err)) throw AppError.duplicate(`${href} is already in this collection.`);
+      if (isUniqueViolation(err))
+        throw AppError.duplicate(`${href} is already in this collection.`);
       throw err;
     }
     await this.enqueueOrUndo(id, async () => {
@@ -150,22 +196,38 @@ export class DocumentsService {
 
     await this.documents.markQueued(id);
     await this.enqueueOrUndo(id, async () => {
-      await this.documents.markFailed(id, "Couldn't queue this document for processing. Try again.");
+      await this.documents.markFailed(
+        id,
+        "Couldn't queue this document for processing. Try again.",
+      );
     });
   }
 
   async remove(userId: string, id: string): Promise<void> {
     const deleted = await this.documents.delete(userId, id);
     if (!deleted) throw notFound();
-    await this.storage.remove(deleted.storagePath).catch((err: unknown) => this.logger.warn(`Couldn't delete a stored file: ${String(err)}`));
+    await this.storage
+      .remove(deleted.storagePath)
+      .catch((err: unknown) =>
+        this.logger.warn(`Couldn't delete a stored file: ${String(err)}`),
+      );
   }
 
-  private async assertCanAdd(collectionId: string, contentHash: string, label: string): Promise<void> {
+  private async assertCanAdd(
+    collectionId: string,
+    contentHash: string,
+    label: string,
+  ): Promise<void> {
     if (await this.documents.findByHash(collectionId, contentHash)) {
       throw AppError.duplicate(`“${label}” is already in this collection.`);
     }
-    if ((await this.documents.countInCollection(collectionId)) >= MAX_DOCUMENTS_PER_COLLECTION) {
-      throw AppError.limit(`A collection can hold at most ${MAX_DOCUMENTS_PER_COLLECTION} documents.`);
+    if (
+      (await this.documents.countInCollection(collectionId)) >=
+      MAX_DOCUMENTS_PER_COLLECTION
+    ) {
+      throw AppError.limit(
+        `A collection can hold at most ${MAX_DOCUMENTS_PER_COLLECTION} documents.`,
+      );
     }
   }
 
@@ -173,21 +235,36 @@ export class DocumentsService {
    * Queues the ingest job (`{ documentId }`). If Redis can't take it, undo what was just saved and say so, instead of leaving
    * a document that looks queued but never will be. (With Redis down BullMQ would wait forever, hence the timeout.)
    */
-  private async enqueueOrUndo(documentId: string, undo: () => Promise<void>): Promise<void> {
+  private async enqueueOrUndo(
+    documentId: string,
+    undo: () => Promise<void>,
+  ): Promise<void> {
     try {
       await withTimeout(
         this.ingestQueue.add(
           "ingest",
           { documentId },
           // A fresh job id every time (a reprocess must not collide with the first job); 1 try + 3 retries (spec 6.2).
-          { jobId: `${documentId}-${Date.now()}`, attempts: 4, removeOnComplete: 100, removeOnFail: 1000 },
+          {
+            jobId: `${documentId}-${Date.now()}`,
+            attempts: 4,
+            backoff: { type: "ingest" },
+            removeOnComplete: 100,
+            removeOnFail: 1000,
+          },
         ),
         3000,
       );
     } catch (err) {
-      this.logger.error(`Couldn't queue ingest for ${documentId}: ${String(err)}`);
-      await undo().catch((e: unknown) => this.logger.error(`Undo after queue failure also failed: ${String(e)}`));
-      throw AppError.unavailable("The processing queue is unavailable. Try again shortly.");
+      this.logger.error(
+        `Couldn't queue ingest for ${documentId}: ${String(err)}`,
+      );
+      await undo().catch((e: unknown) =>
+        this.logger.error(`Undo after queue failure also failed: ${String(e)}`),
+      );
+      throw AppError.unavailable(
+        "The processing queue is unavailable. Try again shortly.",
+      );
     }
   }
 }

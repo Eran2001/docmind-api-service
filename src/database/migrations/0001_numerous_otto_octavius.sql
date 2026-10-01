@@ -1,0 +1,1 @@
+ALTER TABLE "eval_sets" ADD COLUMN "description" text;

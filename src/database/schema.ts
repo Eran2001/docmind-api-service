@@ -21,7 +21,8 @@ import {
 const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
 
 const id = () => uuid("id").primaryKey().defaultRandom();
-const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+const createdAt = () =>
+  timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () =>
   timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -95,9 +96,18 @@ export const documents = pgTable(
   },
   (t) => [
     index("documents_collection_id_idx").on(t.collectionId),
-    unique("documents_collection_hash_unique").on(t.collectionId, t.contentHash),
-    check("documents_source_type_check", sql`${t.sourceType} IN ('file', 'url')`),
-    check("documents_status_check", sql`${t.status} IN ('queued', 'processing', 'ready', 'failed')`),
+    unique("documents_collection_hash_unique").on(
+      t.collectionId,
+      t.contentHash,
+    ),
+    check(
+      "documents_source_type_check",
+      sql`${t.sourceType} IN ('file', 'url')`,
+    ),
+    check(
+      "documents_status_check",
+      sql`${t.status} IN ('queued', 'processing', 'ready', 'failed')`,
+    ),
   ],
 );
 
@@ -117,12 +127,17 @@ export const chunks = pgTable(
     heading: text("heading"),
     tokenCount: integer("token_count").notNull(),
     embedding: vector("embedding", { dimensions: 1536 }).notNull(),
-    tsv: tsvector("tsv").generatedAlwaysAs(sql`to_tsvector('english', content)`),
+    tsv: tsvector("tsv").generatedAlwaysAs(
+      sql`to_tsvector('english', content)`,
+    ),
     createdAt: createdAt(),
   },
   (t) => [
     index("chunks_collection_id_idx").on(t.collectionId),
-    index("chunks_embedding_hnsw").using("hnsw", t.embedding.op("vector_cosine_ops")),
+    index("chunks_embedding_hnsw").using(
+      "hnsw",
+      t.embedding.op("vector_cosine_ops"),
+    ),
     index("chunks_tsv_gin").using("gin", t.tsv),
   ],
 );
@@ -155,9 +170,15 @@ export const messages = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    index("messages_conversation_created_idx").on(t.conversationId, t.createdAt),
+    index("messages_conversation_created_idx").on(
+      t.conversationId,
+      t.createdAt,
+    ),
     check("messages_role_check", sql`${t.role} IN ('user', 'assistant')`),
-    check("messages_status_check", sql`${t.status} IN ('streaming', 'complete', 'error')`),
+    check(
+      "messages_status_check",
+      sql`${t.status} IN ('streaming', 'complete', 'error')`,
+    ),
   ],
 );
 
@@ -183,12 +204,16 @@ export const usageEvents = pgTable(
   "usage_events",
   {
     id: id(),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     kind: text("kind").notNull(),
     model: text("model").notNull(),
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
-    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 })
+      .notNull()
+      .default("0"),
     latencyMs: integer("latency_ms"),
     refType: text("ref_type"), // 'message' | 'document' | 'eval_run'
     refId: uuid("ref_id"),
@@ -196,7 +221,10 @@ export const usageEvents = pgTable(
   },
   (t) => [
     index("usage_events_user_created_idx").on(t.userId, t.createdAt),
-    check("usage_events_kind_check", sql`${t.kind} IN ('embed', 'answer', 'rewrite', 'judge')`),
+    check(
+      "usage_events_kind_check",
+      sql`${t.kind} IN ('embed', 'answer', 'rewrite', 'judge')`,
+    ),
   ],
 );
 
@@ -209,6 +237,7 @@ export const evalSets = pgTable("eval_sets", {
     .notNull()
     .references(() => collections.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  description: text("description"),
   createdAt: createdAt(),
 });
 
@@ -219,7 +248,10 @@ export const evalQuestions = pgTable("eval_questions", {
     .references(() => evalSets.id, { onDelete: "cascade" }),
   question: text("question").notNull(),
   expectedAnswer: text("expected_answer").notNull(),
-  expectedDocumentId: uuid("expected_document_id").references(() => documents.id, { onDelete: "set null" }),
+  expectedDocumentId: uuid("expected_document_id").references(
+    () => documents.id,
+    { onDelete: "set null" },
+  ),
   createdAt: createdAt(),
 });
 
@@ -240,7 +272,12 @@ export const evalRuns = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [check("eval_runs_status_check", sql`${t.status} IN ('queued', 'running', 'done', 'failed')`)],
+  (t) => [
+    check(
+      "eval_runs_status_check",
+      sql`${t.status} IN ('queued', 'running', 'done', 'failed')`,
+    ),
+  ],
 );
 
 export const evalResults = pgTable("eval_results", {

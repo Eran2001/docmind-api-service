@@ -13,6 +13,9 @@ import { StorageModule } from "./integrations/storage/storage.module";
 import { RedisModule } from "./integrations/redis/redis.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { CollectionsModule } from "./modules/collections/collections.module";
+import { ConversationsModule } from "./modules/conversations/conversations.module";
+import { ChatModule } from "./modules/chat/chat.module";
+import { EvalsModule } from "./modules/evals/evals.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { HealthModule } from "./modules/health/health.module";
 import { QueueModule } from "./queues/queue.module";
@@ -31,8 +34,14 @@ import { QueueModule } from "./queues/queue.module";
           genReqId: (req) => String(req.headers["x-request-id"]),
           // One compact line per request: the id, what was asked, and how it went. Headers stay out of the logs.
           serializers: {
-            req: (req: { id: string; method: string; url: string }) => ({ id: req.id, method: req.method, url: req.url }),
-            res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+            req: (req: { id: string; method: string; url: string }) => ({
+              id: req.id,
+              method: req.method,
+              url: req.url,
+            }),
+            res: (res: { statusCode: number }) => ({
+              statusCode: res.statusCode,
+            }),
           },
           redact: {
             paths: [
@@ -46,10 +55,20 @@ import { QueueModule } from "./queues/queue.module";
             censor: "[redacted]",
           },
           // Health checks poll constantly; keep them out of the logs. (Behind Nest's middleware `url` is prefix-stripped.)
-          autoLogging: { ignore: (req) => ((req as { originalUrl?: string }).originalUrl ?? req.url ?? "").endsWith("/health") },
+          autoLogging: {
+            ignore: (req) =>
+              (
+                (req as { originalUrl?: string }).originalUrl ??
+                req.url ??
+                ""
+              ).endsWith("/health"),
+          },
           transport:
             config.NODE_ENV === "development"
-              ? { target: "pino-pretty", options: { singleLine: true, translateTime: "HH:MM:ss.l" } }
+              ? {
+                  target: "pino-pretty",
+                  options: { singleLine: true, translateTime: "HH:MM:ss.l" },
+                }
               : undefined,
         },
       }),
@@ -61,6 +80,9 @@ import { QueueModule } from "./queues/queue.module";
     StorageModule,
     AuthModule,
     CollectionsModule,
+    ConversationsModule,
+    ChatModule,
+    EvalsModule,
     DocumentsModule,
     HealthModule,
   ],

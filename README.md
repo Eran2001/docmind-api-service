@@ -26,17 +26,17 @@ web (Next.js) ──HTTPS/SSE──► API (this) ──internal HTTP──► A
 
 ## Roadmap
 
-| Phase | What | State |
-|---|---|---|
-| 1 | Foundation: config, errors, logging, database schema + migration, Redis + queues, health check | Done |
-| 2 | Auth: register, login, current user, refresh (rotation + reuse detection), logout, edit profile, change password, delete account | Done |
-| 3 | Collections (create, list + search, rename, delete) | Done |
-| 3 | Documents: upload, add URL, list, delete, reprocess (saved to disk, queued for ingestion) | Done |
-| 4 | Ingestion pipeline: the worker that parses, chunks and embeds queued documents (needs the AI service) | Next |
-| 5 | Chat: hybrid search, streaming answers, citations | |
-| 6 | Feedback and usage/cost dashboards | |
-| 7 | Evals | |
-| 8 | Rate limits, seed data, CI, deployment | |
+| Phase | What                                                                                                                             | State                                           |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| 1     | Foundation: config, errors, logging, database schema + migration, Redis + queues, health check                                   | Done                                            |
+| 2     | Auth: register, login, current user, refresh (rotation + reuse detection), logout, edit profile, change password, delete account | Done                                            |
+| 3     | Collections (create, list + search, rename, delete)                                                                              | Done                                            |
+| 3     | Documents: upload, add URL, list, delete, reprocess (saved to disk, queued for ingestion)                                        | Done                                            |
+| 4     | Ingestion pipeline: worker calls AI service, stores chunks and embedding usage, updates document status                          | Implemented; live embeddings need OpenAI credit |
+| 5     | Chat: hybrid search, streaming answers, citations                                                                                | Implemented                                     |
+| 6     | Feedback and usage/cost dashboards                                                                                               | Feedback implemented; dashboards pending        |
+| 7     | Eval set/question CRUD, queued run API and run worker integration                                                                | CRUD ready; scores need the AI judge endpoint   |
+| 8     | Rate limits, seed data, CI, deployment                                                                                           |                                                 |
 
 ## Run it
 
@@ -48,22 +48,25 @@ cp .env.example .env          # then set JWT_SECRET and INTERNAL_API_KEY (openss
 npm run infra:up              # Postgres 16 + pgvector and Redis 7, waits until healthy
 npm run db:migrate            # creates all 13 tables, the vector/pgcrypto extensions and the indexes
 npm run start:dev             # http://localhost:4000/api/v1/health
+# in a second terminal, after the AI service is running
+npm run worker:dev             # consumes document ingestion jobs from Redis
 ```
 
 `npm run infra:down` stops the containers (data stays in Docker volumes).
 
 ## Scripts
 
-| Script | What it does |
-|---|---|
-| `start:dev` | Run with file watching |
-| `build` / `start` | Compile to `dist/` / run the compiled server |
-| `typecheck` / `lint` | `tsc --noEmit` / ESLint |
-| `test` / `test:watch` | Vitest. Most specs need nothing running; the collections spec runs against a real Postgres test database (`docmind_test`, created and migrated automatically) and is skipped if Postgres is down |
-| `db:generate` | Create a migration from changes to `src/database/schema.ts` |
-| `db:migrate` | Apply migrations to `DATABASE_URL` |
-| `db:studio` | Browse the database in Drizzle Studio |
-| `infra:up` / `infra:down` | Start / stop Postgres and Redis (docker compose) |
+| Script                    | What it does                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `start:dev`               | Run with file watching                                                                                                                                                                           |
+| `build` / `start`         | Compile to `dist/` / run the compiled server                                                                                                                                                     |
+| `worker:dev` / `worker`   | Run the separate BullMQ ingestion worker (dev / compiled)                                                                                                                                        |
+| `typecheck` / `lint`      | `tsc --noEmit` / ESLint                                                                                                                                                                          |
+| `test` / `test:watch`     | Vitest. Most specs need nothing running; the collections spec runs against a real Postgres test database (`docmind_test`, created and migrated automatically) and is skipped if Postgres is down |
+| `db:generate`             | Create a migration from changes to `src/database/schema.ts`                                                                                                                                      |
+| `db:migrate`              | Apply migrations to `DATABASE_URL`                                                                                                                                                               |
+| `db:studio`               | Browse the database in Drizzle Studio                                                                                                                                                            |
+| `infra:up` / `infra:down` | Start / stop Postgres and Redis (docker compose)                                                                                                                                                 |
 
 ## Naming: `resourceId`, never `id`
 
@@ -73,27 +76,45 @@ another entity keep their own names (`collectionId`, `userId`).
 
 ## Endpoints
 
-| Method | Path | Notes |
-|---|---|---|
-| POST | `/api/v1/auth/register` | body `{ name, email, password }` → 201, `data: { accessToken, tokenType, expiresIn, user }`, `resourceId` = user id, sets the httpOnly `dm_refresh` cookie. Duplicate email → 409 `EmailAlreadyRegistered`. |
-| POST | `/api/v1/auth/login` | body `{ email, password }` → 200, same `data` and cookie. Any failure → 401 `Unauthorized` "Invalid email or password." |
-| POST | `/api/v1/collections` | protected; body `{ name (1-60), description? (max 500) }` → 201, `data: { result: true }`, `resourceId` = the new id. |
-| GET | `/api/v1/collections/:resourceId` | protected; one collection (404 if missing, malformed or not yours). |
-| GET | `/api/v1/collections?search=` | protected; yours only, most recently updated first, each with `documentCount`. `search` matches name or description, case-insensitive. → `data: { result: [ ... ] }` |
-| PATCH | `/api/v1/collections/:resourceId` | protected; body `{ name?, description? }` (`""` or `null` clears the description) → `data: { result: true }`. Someone else's or a missing id → 404 `NotFound`. |
-| DELETE | `/api/v1/collections/:resourceId` | protected; deletes the collection and, by cascade, its documents, chunks and chats. 404 if it isn't yours. |
-| GET | `/api/v1/collections/:resourceId/documents` | protected; the collection's documents, newest first, with their `status` (`queued`, `processing`, `ready`, `failed`). |
-| POST | `/api/v1/collections/:resourceId/documents` | protected; `multipart/form-data` with one `file` field. **202** `{ result: true }`, `resourceId` = the new document id. PDF, DOCX, TXT or MD (checked by the file's bytes), max `MAX_UPLOAD_MB`. Duplicate bytes in the collection → 409 `DuplicateDocument`; 50 documents → 422 `LimitReached`; bad/empty/oversize file → 400 `ValidationFailed` on `file`. |
-| POST | `/api/v1/collections/:resourceId/documents/url` | protected; body `{ url }` (http/https). 202, same response. Same page (any case, with or without `#fragment`) → 409. |
-| POST | `/api/v1/documents/:resourceId/reprocess` | protected; back to `queued` and re-queued (a document already queued/processing is left alone). 202. |
-| DELETE | `/api/v1/documents/:resourceId` | protected; deletes the document, its chunks and its file on disk. |
-| POST | `/api/v1/auth/refresh` | public; the browser sends the httpOnly `dm_refresh` cookie. → `data`: a NEW access token (same shape as login) and a rotated cookie. Each refresh token works once. |
-| POST | `/api/v1/auth/logout` | public; revokes this browser's refresh token and clears the cookie. Always 200. |
-| GET | `/api/v1/auth/me` | needs `Authorization: Bearer <accessToken>` → `data: { user }`; otherwise 401 `Unauthorized`. |
-| PATCH | `/api/v1/auth/me` | protected; body `{ name, email }` → `data: { user }`. Email taken by someone else → 409 `EmailAlreadyRegistered`. |
-| POST | `/api/v1/auth/change-password` | protected; body `{ currentPassword, newPassword }`. Wrong current password → **400** `ValidationFailed` on `currentPassword` (not 401). Signs out every other device. |
-| DELETE | `/api/v1/auth/me` | protected; deletes the account and everything it owns (foreign keys cascade) and clears the cookie. |
-| GET | `/api/v1/health` | `data: { status, db, redis, ai }`. 200 when ok or degraded (only the AI service is down), 503 (`code: ServiceUnavailable`) when the database or Redis is down. |
+| Method | Path                                            | Notes                                                                                                                                                                                                                                                                                                                                                        |
+| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| POST   | `/api/v1/auth/register`                         | body `{ name, email, password }` → 201, `data: { accessToken, tokenType, expiresIn, user }`, `resourceId` = user id, sets the httpOnly `dm_refresh` cookie. Duplicate email → 409 `EmailAlreadyRegistered`.                                                                                                                                                  |
+| POST   | `/api/v1/auth/login`                            | body `{ email, password }` → 200, same `data` and cookie. Any failure → 401 `Unauthorized` "Invalid email or password."                                                                                                                                                                                                                                      |
+| POST   | `/api/v1/collections`                           | protected; body `{ name (1-60), description? (max 500) }` → 201, `data: { result: true }`, `resourceId` = the new id.                                                                                                                                                                                                                                        |
+| GET    | `/api/v1/collections/:resourceId`               | protected; one collection (404 if missing, malformed or not yours).                                                                                                                                                                                                                                                                                          |
+| GET    | `/api/v1/collections?search=`                   | protected; yours only, most recently updated first, each with `documentCount`. `search` matches name or description, case-insensitive. → `data: { result: [ ... ] }`                                                                                                                                                                                         |
+| PATCH  | `/api/v1/collections/:resourceId`               | protected; body `{ name?, description? }` (`""` or `null` clears the description) → `data: { result: true }`. Someone else's or a missing id → 404 `NotFound`.                                                                                                                                                                                               |
+| DELETE | `/api/v1/collections/:resourceId`               | protected; deletes the collection and, by cascade, its documents, chunks and chats. 404 if it isn't yours.                                                                                                                                                                                                                                                   |
+| GET    | `/api/v1/collections/:resourceId/documents`     | protected; the collection's documents, newest first, with their `status` (`queued`, `processing`, `ready`, `failed`).                                                                                                                                                                                                                                        |
+| POST   | `/api/v1/collections/:resourceId/documents`     | protected; `multipart/form-data` with one `file` field. **202** `{ result: true }`, `resourceId` = the new document id. PDF, DOCX, TXT or MD (checked by the file's bytes), max `MAX_UPLOAD_MB`. Duplicate bytes in the collection → 409 `DuplicateDocument`; 50 documents → 422 `LimitReached`; bad/empty/oversize file → 400 `ValidationFailed` on `file`. |
+| POST   | `/api/v1/collections/:resourceId/documents/url` | protected; body `{ url }` (http/https). 202, same response. Same page (any case, with or without `#fragment`) → 409.                                                                                                                                                                                                                                         |
+| POST   | `/api/v1/documents/:resourceId/reprocess`       | protected; back to `queued` and re-queued (a document already queued/processing is left alone). 202.                                                                                                                                                                                                                                                         |
+| DELETE | `/api/v1/documents/:resourceId`                 | protected; deletes the document, its chunks and its file on disk.                                                                                                                                                                                                                                                                                            |
+| GET    | `/api/v1/documents/:resourceId/chunks/:chunkId` | protected; returns the owned citation passage and its adjacent chunk context.                                                                                                                                                                                                                                                                                |
+| POST   | `/api/v1/collections/:resourceId/conversations` | protected; creates a conversation and returns its id in the top-level `resourceId`.                                                                                                                                                                                                                                                                          |
+| GET    | `/api/v1/collections/:resourceId/conversations` | protected; lists the collection's conversations in `data.result`.                                                                                                                                                                                                                                                                                            |
+| GET    | `/api/v1/conversations/:resourceId`             | protected; conversation, messages, citations, usage and feedback.                                                                                                                                                                                                                                                                                            |
+| DELETE | `/api/v1/conversations/:resourceId`             | protected; deletes the conversation and cascades its messages.                                                                                                                                                                                                                                                                                               |
+| POST   | `/api/v1/conversations/:resourceId/messages`    | protected SSE; rewrites follow-ups, embeds and retrieves with RRF, streams grounded answer tokens, citations and usage.                                                                                                                                                                                                                                      |
+| PUT    | `/api/v1/messages/:resourceId/feedback`         | protected; body `{ rating: 1                                                                                                                                                                                                                                                                                                                                 | -1, comment? }`; upserts feedback for an assistant message. |
+| POST   | `/api/v1/auth/refresh`                          | public; the browser sends the httpOnly `dm_refresh` cookie. → `data`: a NEW access token (same shape as login) and a rotated cookie. Each refresh token works once.                                                                                                                                                                                          |
+| POST   | `/api/v1/auth/logout`                           | public; revokes this browser's refresh token and clears the cookie. Always 200.                                                                                                                                                                                                                                                                              |
+| GET    | `/api/v1/auth/me`                               | needs `Authorization: Bearer <accessToken>` → `data: { user }`; otherwise 401 `Unauthorized`.                                                                                                                                                                                                                                                                |
+| PATCH  | `/api/v1/auth/me`                               | protected; body `{ name, email }` → `data: { user }`. Email taken by someone else → 409 `EmailAlreadyRegistered`.                                                                                                                                                                                                                                            |
+| POST   | `/api/v1/auth/change-password`                  | protected; body `{ currentPassword, newPassword }`. Wrong current password → **400** `ValidationFailed` on `currentPassword` (not 401). Signs out every other device.                                                                                                                                                                                        |
+| DELETE | `/api/v1/auth/me`                               | protected; deletes the account and everything it owns (foreign keys cascade) and clears the cookie.                                                                                                                                                                                                                                                          |
+| GET    | `/api/v1/health`                                | `data: { status, db, redis, ai }`. 200 when ok or degraded (only the AI service is down), 503 (`code: ServiceUnavailable`) when the database or Redis is down.                                                                                                                                                                                               |
+
+### Eval routes
+
+| Method     | Path                                       | Notes                                                                           |
+| ---------- | ------------------------------------------ | ------------------------------------------------------------------------------- |
+| GET/POST   | `/api/v1/evals/sets`                       | List owned sets or create one for an owned collection.                          |
+| GET/DELETE | `/api/v1/evals/sets/:resourceId`           | Read details or delete an owned set.                                            |
+| POST       | `/api/v1/evals/sets/:resourceId/questions` | Add a question, expected answer and optional document from the same collection. |
+| DELETE     | `/api/v1/evals/questions/:resourceId`      | Delete an owned question.                                                       |
+| POST       | `/api/v1/evals/sets/:resourceId/runs`      | Queue a run; scoring awaits the Python `/evals/judge` endpoint.                 |
+| GET        | `/api/v1/evals/runs/:resourceId`           | Read status, progress, metrics and results.                                     |
 
 **Sessions:** a short-lived access token (JWT, sent as `Authorization: Bearer`) plus a long-lived refresh token that only ever lives in an httpOnly cookie
 (path `/api/v1/auth`, 7 days, only its sha256 is stored). Refreshing rotates it. If an already-used refresh token is shown again after more than 10 seconds,
@@ -127,18 +148,18 @@ Every response has the same keys in the same order. `code` is `OK` for every suc
 (so `POST /collections` gives `201`, `data: { "result": true }`, `resourceId: "<new id>"`). Fetch the record, or refetch the list, if you need it.
 Created (201) and accepted (202) responses are still `code: "OK"`.
 
-| Failure `code` | HTTP | Meaning |
-|---|---|---|
-| `ValidationFailed` | 400 | bad input (`error.details` has the field errors) |
-| `Unauthorized` | 401 | not signed in |
-| `NotFound` | 404 | the resource doesn't exist or isn't yours |
-| `ApiRouteFailed` | 404 | the URL doesn't exist |
-| `DuplicateDocument` | 409 | same file already in the collection |
-| `LimitReached` | 422 | e.g. 50 documents per collection |
-| `RateLimited` | 429 | too many requests |
-| `InternalError` | 500 | unexpected failure (details hidden) |
-| `AiServiceFailed` | 502 | the AI service failed |
-| `ServiceUnavailable` | 503 | health check: database or Redis is down |
+| Failure `code`       | HTTP | Meaning                                          |
+| -------------------- | ---- | ------------------------------------------------ |
+| `ValidationFailed`   | 400  | bad input (`error.details` has the field errors) |
+| `Unauthorized`       | 401  | not signed in                                    |
+| `NotFound`           | 404  | the resource doesn't exist or isn't yours        |
+| `ApiRouteFailed`     | 404  | the URL doesn't exist                            |
+| `DuplicateDocument`  | 409  | same file already in the collection              |
+| `LimitReached`       | 422  | e.g. 50 documents per collection                 |
+| `RateLimited`        | 429  | too many requests                                |
+| `InternalError`      | 500  | unexpected failure (details hidden)              |
+| `AiServiceFailed`    | 502  | the AI service failed                            |
+| `ServiceUnavailable` | 503  | health check: database or Redis is down          |
 
 In controllers: `respond.ok(obj)`, `respond.list(rows, { total, nextCursor })`, `respond.created(obj, id)`, `respond.accepted(obj, id)`;
 failures are thrown as `AppError.notFound("Collection")` etc. A plain returned value is wrapped as `ok`; `@RawResponse()` opts a stream out.
@@ -148,18 +169,18 @@ See `src/common/http/api-response.ts`.
 
 Validated with zod at startup; the server refuses to start and lists every problem if something is wrong. See `.env.example`.
 
-| Variable | Default | Notes |
-|---|---|---|
-| `DATABASE_URL` | (required) | `postgres://user:pass@host:5432/db` |
-| `REDIS_URL` | (required) | `redis://host:6379` |
-| `JWT_SECRET` | (required) | at least 32 characters; signs access tokens |
-| `ACCESS_TOKEN_TTL_SECONDS` | `900` | access token lifetime (15 min). Set it to a few seconds to watch the refresh flow |
-| `INTERNAL_API_KEY` | (required) | at least 16 characters, shared with the AI service |
-| `API_PORT` | `4000` | |
-| `WEB_ORIGIN` | `http://localhost:3000` | allowed CORS origin(s), comma-separated (credentials allowed) |
-| `AI_SERVICE_URL` | `http://localhost:8000` | |
-| `STORAGE_DIR` / `MAX_UPLOAD_MB` | `./storage` / `20` | uploads are saved at `STORAGE_DIR/<userId>/<documentId>.<ext>`; max upload size in MB |
-| `LOG_LEVEL` | `info` | pretty logs in development, JSON otherwise |
+| Variable                        | Default                 | Notes                                                                                 |
+| ------------------------------- | ----------------------- | ------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                  | (required)              | `postgres://user:pass@host:5432/db`                                                   |
+| `REDIS_URL`                     | (required)              | `redis://host:6379`                                                                   |
+| `JWT_SECRET`                    | (required)              | at least 32 characters; signs access tokens                                           |
+| `ACCESS_TOKEN_TTL_SECONDS`      | `900`                   | access token lifetime (15 min). Set it to a few seconds to watch the refresh flow     |
+| `INTERNAL_API_KEY`              | (required)              | at least 16 characters, shared with the AI service                                    |
+| `API_PORT`                      | `4000`                  |                                                                                       |
+| `WEB_ORIGIN`                    | `http://localhost:3000` | allowed CORS origin(s), comma-separated (credentials allowed)                         |
+| `AI_SERVICE_URL`                | `http://localhost:8000` |                                                                                       |
+| `STORAGE_DIR` / `MAX_UPLOAD_MB` | `./storage` / `20`      | uploads are saved at `STORAGE_DIR/<userId>/<documentId>.<ext>`; max upload size in MB |
+| `LOG_LEVEL`                     | `info`                  | pretty logs in development, JSON otherwise                                            |
 
 ## Structure
 
