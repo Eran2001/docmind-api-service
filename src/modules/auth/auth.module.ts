@@ -3,6 +3,8 @@ import { JwtModule } from "@nestjs/jwt";
 
 import { APP_CONFIG } from "../../config/config.module";
 import type { Env } from "../../config/env.schema";
+import { DemoRepository } from "../demo/demo.repository";
+import { DemoService } from "../demo/demo.service";
 import { UsersModule } from "../users/users.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
@@ -22,7 +24,13 @@ import { TokensService } from "./tokens.service";
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokensService, RefreshTokensRepository],
-  exports: [TokensService],
+  providers: [
+    AuthService,
+    TokensService,
+    RefreshTokensRepository,
+    DemoService,
+    DemoRepository,
+  ],
+  exports: [TokensService, AuthService, DemoService],
 })
 export class AuthModule {}

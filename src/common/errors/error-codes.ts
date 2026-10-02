@@ -7,6 +7,8 @@ export const ERROR_STATUS = {
   DuplicateDocument: 409,
   EmailAlreadyRegistered: 409,
   LimitReached: 422,
+  DemoLimitReached: 403, // a demo visitor used up their questions or upload
+  DemoRestricted: 403, // an action the demo account may not do (change password, delete things, ...)
   RateLimited: 429,
   InternalError: 500,
   AiServiceFailed: 502,

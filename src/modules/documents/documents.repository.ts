@@ -3,6 +3,7 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 
 import { DB, type Database } from "../../database/database.module";
 import { chunks, documents, usageEvents } from "../../database/schema";
+import { costUsd } from "../usage/pricing";
 
 export type DocumentRow = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
@@ -215,6 +216,9 @@ export class DocumentsRepository {
         model: usage.model,
         inputTokens: usage.input_tokens,
         outputTokens: usage.output_tokens,
+        costUsd: String(
+          costUsd(usage.model, usage.input_tokens, usage.output_tokens),
+        ),
         latencyMs: usage.latency_ms,
         refType: "document",
         refId: documentId,

@@ -89,32 +89,63 @@ export const respond = {
   },
 
   /** 200 with a list: `data: { result: [...], total?, nextCursor? }`. */
-  list<T>(result: T[], meta: { total?: number; nextCursor?: string | null } = {}): ApiResponse<ListData<T>> {
+  list<T>(
+    result: T[],
+    meta: { total?: number; nextCursor?: string | null } = {},
+  ): ApiResponse<ListData<T>> {
     return new ApiResponse({ data: { result, ...meta } });
   },
 
   /** 200 `{ result: true }` for a write that succeeded (update, delete, sign out ...). `resourceId` = what was changed. */
   done(message = "OK", resourceId?: string): ApiResponse<{ result: true }> {
-    return new ApiResponse({ data: { result: true as const }, message, resourceId });
+    return new ApiResponse({
+      data: { result: true as const },
+      message,
+      resourceId,
+    });
   },
 
   /** 201 `{ result: true }` for a create. The new id is `resourceId`; the record itself is not sent back. */
-  createdDone(resourceId: string, message = "Created"): ApiResponse<{ result: true }> {
-    return new ApiResponse({ data: { result: true as const }, status: 201, message, resourceId });
+  createdDone(
+    resourceId: string,
+    message = "Created",
+  ): ApiResponse<{ result: true }> {
+    return new ApiResponse({
+      data: { result: true as const },
+      status: 201,
+      message,
+      resourceId,
+    });
   },
 
   /** 202 `{ result: true }` for a create whose work continues in the background (an upload). The new id is `resourceId`. */
-  acceptedDone(resourceId: string, message = "Accepted"): ApiResponse<{ result: true }> {
-    return new ApiResponse({ data: { result: true as const }, status: 202, message, resourceId });
+  acceptedDone(
+    resourceId: string,
+    message = "Accepted",
+  ): ApiResponse<{ result: true }> {
+    return new ApiResponse({
+      data: { result: true as const },
+      status: 202,
+      message,
+      resourceId,
+    });
   },
 
   /** 201 for a newly created resource; `resourceId` is the new id. Still code "OK". (Use createdDone unless the caller needs the data.) */
-  created<T>(data: T, resourceId?: string, message = "Created"): ApiResponse<T> {
+  created<T>(
+    data: T,
+    resourceId?: string,
+    message = "Created",
+  ): ApiResponse<T> {
     return new ApiResponse({ data, status: 201, message, resourceId });
   },
 
   /** 202 for work queued in the background (uploads, eval runs). Still code "OK". */
-  accepted<T>(data: T, resourceId?: string, message = "Accepted"): ApiResponse<T> {
+  accepted<T>(
+    data: T,
+    resourceId?: string,
+    message = "Accepted",
+  ): ApiResponse<T> {
     return new ApiResponse({ data, status: 202, message, resourceId });
   },
 
@@ -124,7 +155,10 @@ export const respond = {
   },
 };
 
-export function toEnvelope<T>(res: ApiResponse<T>, requestId: string): ApiEnvelope<T> {
+export function toEnvelope<T>(
+  res: ApiResponse<T>,
+  requestId: string,
+): ApiEnvelope<T> {
   return {
     code: res.code,
     data: res.data,

@@ -22,7 +22,10 @@ class DemoController {
     return respond.ok({ id: "1", name: "Handbook" });
   }
   @Get("list") list() {
-    return respond.list([{ id: 1 }, { id: 2 }], { total: 12, nextCursor: "abc" });
+    return respond.list([{ id: 1 }, { id: 2 }], {
+      total: 12,
+      nextCursor: "abc",
+    });
   }
   @Get("empty-list") emptyList() {
     return respond.list([]);
@@ -56,7 +59,10 @@ describe("response envelope", () => {
         { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
       ],
     }).compile();
-    app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(), { logger: false });
+    app = moduleRef.createNestApplication<NestFastifyApplication>(
+      createAdapter(),
+      { logger: false },
+    );
     await configureApp(app, loadEnv(process.env));
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
@@ -65,22 +71,42 @@ describe("response envelope", () => {
     await app.close();
   });
 
-  const get = (url: string, method: "GET" | "POST" | "DELETE" = "GET") => app.inject({ method, url: `/api/v1/demo${url}` });
+  const get = (url: string, method: "GET" | "POST" | "DELETE" = "GET") =>
+    app.inject({ method, url: `/api/v1/demo${url}` });
 
   it("wraps a plain returned value as an OK envelope with the request id", async () => {
     const res = await get("/plain");
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ code: "OK", data: { hello: "world" }, message: "OK", resourceId: null, requestId: res.headers["x-request-id"] });
-    expect(Object.keys(res.json())).toEqual(["code", "data", "message", "resourceId", "requestId"]);
+    expect(res.json()).toEqual({
+      code: "OK",
+      data: { hello: "world" },
+      message: "OK",
+      resourceId: null,
+      requestId: res.headers["x-request-id"],
+    });
+    expect(Object.keys(res.json())).toEqual([
+      "code",
+      "data",
+      "message",
+      "resourceId",
+      "requestId",
+    ]);
   });
 
   it("respond.ok puts the object under data", async () => {
-    expect((await get("/one")).json().data).toEqual({ id: "1", name: "Handbook" });
+    expect((await get("/one")).json().data).toEqual({
+      id: "1",
+      name: "Handbook",
+    });
   });
 
   it("respond.list puts the rows under data.result, with optional paging info", async () => {
     const body = (await get("/list")).json();
-    expect(body.data).toEqual({ result: [{ id: 1 }, { id: 2 }], total: 12, nextCursor: "abc" });
+    expect(body.data).toEqual({
+      result: [{ id: 1 }, { id: 2 }],
+      total: 12,
+      nextCursor: "abc",
+    });
     expect(Array.isArray(body.data.result)).toBe(true);
     expect((await get("/empty-list")).json().data).toEqual({ result: [] });
   });
@@ -88,13 +114,22 @@ describe("response envelope", () => {
   it("respond.created is 201 with the new resourceId", async () => {
     const res = await get("", "POST");
     expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ code: "OK", message: "Created", resourceId: "doc-1", data: { id: "doc-1", status: "queued" } });
+    expect(res.json()).toMatchObject({
+      code: "OK",
+      message: "Created",
+      resourceId: "doc-1",
+      data: { id: "doc-1", status: "queued" },
+    });
   });
 
   it("respond.accepted is 202", async () => {
     const res = await get("/jobs", "POST");
     expect(res.statusCode).toBe(202);
-    expect(res.json()).toMatchObject({ code: "OK", message: "Accepted", resourceId: "run-1" });
+    expect(res.json()).toMatchObject({
+      code: "OK",
+      message: "Accepted",
+      resourceId: "run-1",
+    });
   });
 
   it("leaves @RawResponse endpoints alone", async () => {
@@ -111,7 +146,14 @@ describe("response envelope", () => {
     const res = await get("/missing");
     const body = res.json();
     expect(res.statusCode).toBe(404);
-    expect(Object.keys(body)).toEqual(["code", "error", "debug", "message", "resourceId", "requestId"]);
+    expect(Object.keys(body)).toEqual([
+      "code",
+      "error",
+      "debug",
+      "message",
+      "resourceId",
+      "requestId",
+    ]);
     expect(body).toMatchObject({
       code: "NotFound",
       error: { status: 404 },
@@ -120,13 +162,21 @@ describe("response envelope", () => {
       requestId: res.headers["x-request-id"],
     });
     expect(body).not.toHaveProperty("data");
-    expect(body.debug).toMatchObject({ name: "AppError", method: "GET", path: "/api/v1/demo/missing" });
+    expect(body.debug).toMatchObject({
+      name: "AppError",
+      method: "GET",
+      path: "/api/v1/demo/missing",
+    });
   });
 
   it("uses ApiRouteFailed for a URL that does not exist", async () => {
     const res = await app.inject({ method: "GET", url: "/api/v1/nope" });
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ code: "ApiRouteFailed", message: "Route not found.", error: { status: 404 } });
+    expect(res.json()).toMatchObject({
+      code: "ApiRouteFailed",
+      message: "Route not found.",
+      error: { status: 404 },
+    });
   });
 });
 
@@ -135,18 +185,32 @@ describe("debug field", () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [DemoController],
       providers: [
-        { provide: APP_CONFIG, useValue: { ...loadEnv(process.env), NODE_ENV: "production" } },
+        {
+          provide: APP_CONFIG,
+          useValue: { ...loadEnv(process.env), NODE_ENV: "production" },
+        },
         { provide: APP_FILTER, useClass: AllExceptionsFilter },
         { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
       ],
     }).compile();
-    const prod = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(), { logger: false });
+    const prod = moduleRef.createNestApplication<NestFastifyApplication>(
+      createAdapter(),
+      { logger: false },
+    );
     await configureApp(prod, loadEnv(process.env));
     await prod.init();
     await prod.getHttpAdapter().getInstance().ready();
 
-    const body = (await prod.inject({ method: "GET", url: "/api/v1/demo/missing" })).json();
-    expect(Object.keys(body)).toEqual(["code", "error", "message", "resourceId", "requestId"]);
+    const body = (
+      await prod.inject({ method: "GET", url: "/api/v1/demo/missing" })
+    ).json();
+    expect(Object.keys(body)).toEqual([
+      "code",
+      "error",
+      "message",
+      "resourceId",
+      "requestId",
+    ]);
     expect(body).not.toHaveProperty("debug");
     await prod.close();
   });

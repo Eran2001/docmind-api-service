@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { DB, type Database } from "../../database/database.module";
@@ -33,18 +33,46 @@ export interface MessageWriteResult {
 export class ConversationsRepository {
   constructor(@Inject(DB) private readonly db: Database) {}
 
-  list(userId: string, collectionId: string): Promise<ConversationRow[]> {
-    return this.db
-      .select()
+  /**
+   * One page, newest activity first, ordered by (updated_at, id). `after` is the position of the last row of the previous page.
+   * Each row carries `cursorTime`: its `updated_at` as text with MICROSECOND precision. A JS Date only has milliseconds, and
+   * comparing against a truncated time would skip rows that fall between the two.
+   */
+  async list(
+    userId: string,
+    collectionId: string,
+    page: { limit: number; after?: { time: string; id: string } },
+  ): Promise<(ConversationRow & { cursorTime: string })[]> {
+    const rows = await this.db
+      .select({
+        conversation: conversations,
+        cursorTime: sql<string>`to_char(${conversations.updatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      })
       .from(conversations)
       .where(
         and(
           eq(conversations.userId, userId),
           eq(conversations.collectionId, collectionId),
+          page.after
+            ? or(
+                lt(
+                  conversations.updatedAt,
+                  sql`${page.after.time}::timestamptz`,
+                ),
+                and(
+                  sql`${conversations.updatedAt} = ${page.after.time}::timestamptz`,
+                  lt(conversations.id, page.after.id),
+                ),
+              )
+            : undefined,
         ),
       )
       .orderBy(desc(conversations.updatedAt), desc(conversations.id))
-      .limit(100);
+      .limit(page.limit);
+    return rows.map((row) => ({
+      ...row.conversation,
+      cursorTime: row.cursorTime,
+    }));
   }
 
   async create(userId: string, collectionId: string): Promise<ConversationRow> {

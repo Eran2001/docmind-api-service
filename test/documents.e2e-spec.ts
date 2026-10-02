@@ -27,6 +27,7 @@ import { loadEnv } from "../src/config/env.schema";
 import { DatabaseModule, PG_POOL } from "../src/database/database.module";
 import { StorageModule } from "../src/integrations/storage/storage.module";
 import { AuthModule } from "../src/modules/auth/auth.module";
+import { DemoModule } from "../src/modules/demo/demo.module";
 import { CollectionsModule } from "../src/modules/collections/collections.module";
 import { DocumentsController } from "../src/modules/documents/documents.controller";
 import { DocumentsRepository } from "../src/modules/documents/documents.repository";
@@ -51,6 +52,7 @@ describe.skipIf(!inject("dbReady"))(
           StorageModule,
           AuthModule,
           CollectionsModule,
+          DemoModule,
         ],
         controllers: [DocumentsController],
         providers: [
@@ -162,6 +164,12 @@ describe.skipIf(!inject("dbReady"))(
         Buffer.from([0x50, 0x4b, 0x03, 0x04]),
         Buffer.from(`word/document.xml ${marker}`),
       ]);
+    const legacyDoc = (marker = "a") =>
+      Buffer.concat([
+        Buffer.from("D0CF11E0A1B11AE1", "hex"),
+        Buffer.from("WordDocument", "utf16le"),
+        Buffer.from(marker),
+      ]);
     const text = (marker = "a") =>
       Buffer.from(
         `Policies and benefits. ${marker}\nThis is plain text with ünïcode.`,
@@ -208,11 +216,12 @@ describe.skipIf(!inject("dbReady"))(
         );
       });
 
-      it("accepts DOCX, TXT and MD too, and the collection's documentCount follows", async () => {
+      it("accepts legacy DOC, DOCX, TXT and MD, and the collection's documentCount follows", async () => {
         const { token } = await register("a@test.com");
         const cid = await newCollection(token);
         for (const [name, content] of [
           ["a.docx", docx()],
+          ["legacy.doc", legacyDoc()],
           ["b.txt", text("b")],
           ["c.md", text("c")],
         ] as const) {
@@ -222,6 +231,7 @@ describe.skipIf(!inject("dbReady"))(
         }
         const docs = await list(token, cid);
         expect(docs.map((d) => d.mimeType).sort()).toEqual([
+          "application/msword",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           "text/markdown",
           "text/plain",
@@ -229,7 +239,7 @@ describe.skipIf(!inject("dbReady"))(
         expect(
           (await call(token, "GET", `/collections/${cid}`)).json().data
             .documentCount,
-        ).toBe(3);
+        ).toBe(4);
       });
 
       it("decides by the file's bytes, not its name: a fake PDF, a text file named .pdf, a fake DOCX, a binary .txt and an .exe are all refused", async () => {

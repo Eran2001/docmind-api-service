@@ -8,20 +8,13 @@ import {
   type AiUsage,
 } from "../../integrations/ai/ai.client";
 import { ChatService } from "../../modules/chat/chat.service";
+import { costUsd } from "../../modules/usage/pricing";
 import { EvalsRepository } from "../../modules/evals/evals.repository";
 import { QUEUES } from "../../config/constants";
 
 export interface RunEvalJob {
   runId: string;
 }
-
-const MODEL_PRICES_PER_MILLION: Record<
-  string,
-  { input: number; output: number }
-> = {
-  "text-embedding-3-small": { input: 0.02, output: 0 },
-  "llama3.2": { input: 0, output: 0 },
-};
 
 @Processor(QUEUES.EVALS)
 @Injectable()
@@ -145,17 +138,12 @@ export class EvalsProcessor extends WorkerHost {
 }
 
 function usageRecord(kind: "judge", usage: AiUsage) {
-  const price = MODEL_PRICES_PER_MILLION[usage.model];
-  const costUsd = price
-    ? (usage.input_tokens * price.input + usage.output_tokens * price.output) /
-      1_000_000
-    : 0;
   return {
     kind,
     model: usage.model,
     inputTokens: usage.input_tokens,
     outputTokens: usage.output_tokens,
-    costUsd,
+    costUsd: costUsd(usage.model, usage.input_tokens, usage.output_tokens),
     latencyMs: usage.latency_ms,
   };
 }

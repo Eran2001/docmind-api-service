@@ -15,6 +15,20 @@
       "when": 1790855445157,
       "tag": "0001_numerous_otto_octavius",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790931215158,
+      "tag": "0002_user_avatar",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790933005790,
+      "tag": "0003_demo_accounts",
+      "breakpoints": true
     }
   ]
 }

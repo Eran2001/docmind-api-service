@@ -2,8 +2,14 @@ import { Injectable, Logger } from "@nestjs/common";
 
 import { AppError } from "../../common/errors/app-error";
 import { StorageService } from "../../integrations/storage/storage.service";
-import { CollectionsRepository, type CollectionRow } from "./collections.repository";
-import type { CreateCollectionInput, UpdateCollectionInput } from "./dto/collections.schemas";
+import {
+  CollectionsRepository,
+  type CollectionRow,
+} from "./collections.repository";
+import type {
+  CreateCollectionInput,
+  UpdateCollectionInput,
+} from "./dto/collections.schemas";
 
 /** What the API sends for a collection (dates as UTC ISO strings). */
 export interface PublicCollection {
@@ -36,14 +42,23 @@ export class CollectionsService {
   ) {}
 
   async list(userId: string, search?: string): Promise<PublicCollection[]> {
-    return (await this.collections.list(userId, search || undefined)).map(toPublic);
+    return (await this.collections.list(userId, search || undefined)).map(
+      toPublic,
+    );
   }
 
-  async create(userId: string, input: CreateCollectionInput): Promise<PublicCollection> {
+  async create(
+    userId: string,
+    input: CreateCollectionInput,
+  ): Promise<PublicCollection> {
     return toPublic(await this.collections.create(userId, input));
   }
 
-  async update(userId: string, id: string, input: UpdateCollectionInput): Promise<PublicCollection> {
+  async update(
+    userId: string,
+    id: string,
+    input: UpdateCollectionInput,
+  ): Promise<PublicCollection> {
     const patch: { name?: string; description?: string | null } = {};
     if (input.name !== undefined) patch.name = input.name;
     if (input.description !== undefined) patch.description = input.description;
@@ -56,7 +71,11 @@ export class CollectionsService {
   async remove(userId: string, id: string): Promise<void> {
     const paths = await this.collections.storagePaths(userId, id);
     if (!(await this.collections.delete(userId, id))) throw notFound();
-    await this.storage.removeMany(paths).catch((err: unknown) => this.logger.warn(`Couldn't delete stored files: ${String(err)}`));
+    await this.storage
+      .removeMany(paths)
+      .catch((err: unknown) =>
+        this.logger.warn(`Couldn't delete stored files: ${String(err)}`),
+      );
   }
 
   /** For other modules (documents, chat) that must confirm a collection is the caller's before touching it. */

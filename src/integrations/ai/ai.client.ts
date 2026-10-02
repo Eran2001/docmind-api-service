@@ -53,8 +53,7 @@ const judgeResponseSchema = z.object({
 export type IngestResponse = z.infer<typeof ingestResponseSchema>;
 
 export type AiAnswerEvent =
-  | { event: "token"; text: string }
-  | { event: "done"; usage: AiUsage };
+  { event: "token"; text: string } | { event: "done"; usage: AiUsage };
 
 export interface AiHistoryMessage {
   role: "user" | "assistant";

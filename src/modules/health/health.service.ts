@@ -17,7 +17,12 @@ export interface HealthReport {
 }
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
-  Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
+  Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), ms),
+    ),
+  ]);
 
 const probe = async (check: () => Promise<unknown>): Promise<ServiceState> => {
   try {
@@ -42,7 +47,12 @@ export class HealthService {
       probe(() => this.redis.ping()),
       this.ai.isHealthy().then((ok): ServiceState => (ok ? "up" : "down")),
     ]);
-    const status = db === "down" || redis === "down" ? "down" : ai === "down" ? "degraded" : "ok";
+    const status =
+      db === "down" || redis === "down"
+        ? "down"
+        : ai === "down"
+          ? "degraded"
+          : "ok";
     return { status, db, redis, ai };
   }
 }

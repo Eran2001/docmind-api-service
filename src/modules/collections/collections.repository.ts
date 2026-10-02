@@ -26,7 +26,8 @@ const columns = {
 };
 
 /** `%` and `_` are wildcards in LIKE; escape them so a search for "50%" means those characters. */
-const containsPattern = (term: string) => `%${term.replace(/[\\%_]/g, "\\$&")}%`;
+const containsPattern = (term: string) =>
+  `%${term.replace(/[\\%_]/g, "\\$&")}%`;
 
 /** All SQL for collections. Every query is filtered by `userId`: someone else's collection simply isn't there. */
 @Injectable()
@@ -34,7 +35,12 @@ export class CollectionsRepository {
   constructor(@Inject(DB) private readonly db: Database) {}
 
   list(userId: string, search?: string): Promise<CollectionRow[]> {
-    const match = search ? or(ilike(collections.name, containsPattern(search)), ilike(collections.description, containsPattern(search))) : undefined;
+    const match = search
+      ? or(
+          ilike(collections.name, containsPattern(search)),
+          ilike(collections.description, containsPattern(search)),
+        )
+      : undefined;
     return this.db
       .select(columns)
       .from(collections)
@@ -42,7 +48,10 @@ export class CollectionsRepository {
       .orderBy(desc(collections.updatedAt), desc(collections.createdAt));
   }
 
-  async findOwned(userId: string, id: string): Promise<CollectionRow | undefined> {
+  async findOwned(
+    userId: string,
+    id: string,
+  ): Promise<CollectionRow | undefined> {
     const [row] = await this.db
       .select(columns)
       .from(collections)
@@ -51,8 +60,14 @@ export class CollectionsRepository {
     return row;
   }
 
-  async create(userId: string, input: { name: string; description: string | null }): Promise<CollectionRow> {
-    const [created] = await this.db.insert(collections).values({ userId, ...input }).returning({ id: collections.id });
+  async create(
+    userId: string,
+    input: { name: string; description: string | null },
+  ): Promise<CollectionRow> {
+    const [created] = await this.db
+      .insert(collections)
+      .values({ userId, ...input })
+      .returning({ id: collections.id });
     const row = created && (await this.findOwned(userId, created.id));
     if (!row) throw new Error("Insert returned no row");
     return row;

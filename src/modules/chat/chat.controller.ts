@@ -2,11 +2,13 @@ import { Body, Controller, Param, Post, Put, Req, Res } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { RateLimit } from "../../common/decorators/rate-limit.decorator";
 import { RawResponse } from "../../common/decorators/raw-response.decorator";
 import { respond } from "../../common/http/api-response";
 import { UuidParamPipe } from "../../common/pipes/uuid-param.pipe";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import type { AuthUser } from "../../common/types/fastify";
+import { DemoLimitsService } from "../demo/demo-limits.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import { ChatService, type ChatSseEvent } from "./chat.service";
 import {
@@ -23,10 +25,12 @@ export class ChatController {
   constructor(
     private readonly chat: ChatService,
     private readonly conversations: ConversationsService,
+    private readonly demoLimits: DemoLimitsService,
     @InjectConfig() private readonly config: Env,
   ) {}
 
   @RawResponse()
+  @RateLimit({ name: "chat", limit: 20, windowSeconds: 60, by: "user" }) // spec 8.4
   @Post("conversations/:resourceId/messages")
   async sendMessage(
     @CurrentUser() user: AuthUser,
@@ -37,6 +41,7 @@ export class ChatController {
     @Res() reply: FastifyReply,
   ): Promise<void> {
     await this.conversations.requireOwned(user.id, conversationId);
+    if (user.demo) await this.demoLimits.reserveQuestion(user.id); // 403 DemoLimitReached before the stream starts
     reply.hijack();
     const origin = request.headers.origin;
     const corsHeaders =

@@ -1,9 +1,12 @@
+- Uploads are `multipart/form-data` (`@fastify/multipart`, registered in `app.setup.ts` with the `MAX_UPLOAD_MB` limit). Type detection is by BYTES (`modules/documents/file-type.ts`); support PDF, legacy DOC (OLE WordDocument stream), DOCX, TXT and MD. Stored names are built from ids (`StorageService`), never from the upload; filenames shown are sanitised.
+
 # DocMind API — Rules
 
 Backend API and orchestration layer: **NestJS (Fastify adapter) + TypeScript strict**. Contract: `../docmind-web-service/01-docmind-rag-platform.md`
 (spec Sections 5–9, 11). The spec's Fastify plugins map to Nest equivalents below. If something is in neither the spec nor the code, ASK before inventing it.
 
 ## Hard rules
+
 - This service owns users, data, auth and orchestration. It is the ONLY service that touches Postgres and Redis.
 - The AI service is stateless and internal. Call it with header `X-Internal-Key: $INTERNAL_API_KEY`; pass file BYTES (multipart), never paths.
 - The browser only talks to this API. Base path `/api/v1`.
@@ -16,12 +19,14 @@ Backend API and orchestration layer: **NestJS (Fastify adapter) + TypeScript str
 - Every phase ships with tests (spec Section 13) and a README update.
 
 ## Stack
+
 Node 22+ (`.nvmrc`) · NestJS 11 (CommonJS; Nest 12 is ESM-only, so we stay on 11) on `@nestjs/platform-fastify` · TypeScript strict (no `any`)
 Drizzle ORM + drizzle-kit on `pg` · Postgres 16 + pgvector · zod 3 (own `ZodValidationPipe`, schemas mirrored from the web app) · BullMQ via `@nestjs/bullmq` + Redis 7
 `@fastify/helmet`, `@fastify/cookie`, `@fastify/multipart` (Phase 3) · `@nestjs/throttler` (Redis store, Phase 8) · `@nestjs/jwt` + argon2 (Phase 2)
 `nestjs-pino` (logging, redaction) · Vitest with SWC (unit + e2e via `app.inject`, no supertest) · npm
 
 ## Layout
+
 ```
 docmind-api-service/
 ├── src/
@@ -52,20 +57,25 @@ docmind-api-service/
 ├── scripts/
 ├── drizzle.config.ts · nest-cli.json · tsconfig.json · .env.example
 ```
+
 Rules: controllers are thin (parse DTO → call service → return). Business logic in services, ALL SQL in repositories (Drizzle). Modules never import each
 other's repositories; go through the exporting module's service. Cross-cutting behaviour (auth, errors, request-id, rate limits) is global via guards/filters/middleware.
 API types/zod schemas are mirrored in the web repo's `src/types` and `src/schemas`. Keep DTOs and response shapes in sync with them (copy per phase).
 
 ## Naming: `resourceId`, never `id`
-In API JSON every entity identifies itself as `resourceId` (Public* DTOs map `row.id` → `resourceId`), route params are `:resourceId`, and the envelope's top-level `resourceId` is the id of what a request created/changed.
+
+In API JSON every entity identifies itself as `resourceId` (Public\* DTOs map `row.id` → `resourceId`), route params are `:resourceId`, and the envelope's top-level `resourceId` is the id of what a request created/changed.
 Database columns and internal types keep `id`; references to other entities keep their names (`collectionId`, `userId`). New endpoints follow this from the start. The JWT's `sub` claim is the standard name and stays.
 
 ## Response envelope (differs from spec 8.1)
+
 Every response, success or failure, has the same keys in the same order (see `common/http/api-response.ts`):
+
 ```
 success: { code: "OK", data, message, resourceId, requestId }
 failure: { code: "NotFound", error: { status, details? }, debug?, message, resourceId, requestId }     (no `data` on failures)
 ```
+
 - `code` says what happened: `OK` for EVERY success (201/202 too; the HTTP status and `message` differ). On failure it is the error code:
   `ValidationFailed` 400 · `Unauthorized` 401 · `NotFound` 404 (a resource) · `ApiRouteFailed` 404 (the URL) · `DuplicateDocument` 409 · `LimitReached` 422 ·
   `RateLimited` 429 · `InternalError` 500 · `AiServiceFailed` 502 · `ServiceUnavailable` 503. Add new ones in `common/errors/error-codes.ts` (PascalCase).
@@ -79,13 +89,17 @@ failure: { code: "NotFound", error: { status, details? }, debug?, message, resou
 - Failures: throw `AppError.notFound("Collection")`, `AppError.validation(...)` etc.; the global `AllExceptionsFilter` builds the envelope. Never `throw new NotFoundException` for a missing resource (that means "route not found").
 
 ## Collections (built)
+
 `POST/GET/PATCH/DELETE /collections`, `GET /collections?search=`. Search is a case-insensitive contains on name OR description, with `%` `_` `\` escaped. Lists are `data.result`.
+
 - Every repository query filters by `user_id`; a collection that is missing, malformed (`UuidParamPipe`) or someone else's is `NotFound` 404, never 403. Other modules call `CollectionsService.requireOwned(userId, id)` before touching a collection.
 - In a Drizzle `select`, columns inside a `sql` template are printed WITHOUT their table, so a correlated subquery must spell out the table names (see `documentCount`).
 - Deleting a collection cascades in Postgres; once uploads are stored on disk, `CollectionsService.remove` must also delete their files.
 
 ## Auth (spec 6.1, 11)
+
 Built: register, login, refresh, logout, `GET/PATCH/DELETE /auth/me`, `POST /auth/change-password`.
+
 - Routes are protected by default (global `JwtAuthGuard`); `@Public()` opens one. `@CurrentUser()` gives `{ id, role }`. The guard only verifies the token (stateless); `/auth/me` checks the user still exists.
 - register/login return `data: { accessToken, tokenType: "Bearer", expiresIn: 900, user: { id, name, email, role, createdAt } }` (register is 201 with `resourceId` = user id). The web app sends `Authorization: Bearer <accessToken>`.
 - argon2id hashing (`@node-rs/argon2`). Login failure is always "Invalid email or password." (unknown email costs the same time as a wrong password). Emails are lowercased. Duplicate email → `EmailAlreadyRegistered` 409 with `error.details.fieldErrors.email`.
@@ -98,12 +112,14 @@ Built: register, login, refresh, logout, `GET/PATCH/DELETE /auth/me`, `POST /aut
 - Deleting an account relies on the foreign-key cascades in the schema; when uploads are stored on disk (Phase 3), `AuthService.deleteAccount` must also remove the user's files.
 
 ## Documents (built: upload, URL, list, delete, reprocess)
+
 - Uploads are `multipart/form-data` (`@fastify/multipart`, registered in `app.setup.ts` with the `MAX_UPLOAD_MB` limit). Type detection is by BYTES (`modules/documents/file-type.ts`); stored names are built from ids (`StorageService`), never from the upload; filenames shown are sanitised.
 - Order in `DocumentsService`: ownership (404) → detect type → sha256 dedupe (409) → 50-document limit (422) → write file → insert row (unique `(collection_id, content_hash)` decides a race) → enqueue. If the enqueue fails or times out (3 s), undo the row and the file and answer 503. Never leave a `queued` document that has no job.
 - Responses follow the write rule: 202 `{ result: true }` + `resourceId` (`respond.acceptedDone`). Deleting a document/collection/account also deletes the files (`StorageService`).
 - Test specs that hit the database share `docmind_test` and truncate it, so `fileParallelism` is off in `vitest.config.mts`. Keep it off.
 
 ## Documents & ingestion (spec 6.2)
+
 - Upload: allow pdf/docx/txt/md, check magic bytes, max 20 MB, max 50 docs per collection, sha256 dedupe → 409 `DUPLICATE_DOCUMENT`.
 - Store at `STORAGE_DIR/{userId}/{documentId}{ext}` (random name, never the user's filename). Insert doc `status='queued'`, enqueue job, return 202.
 - Worker: `processing` → call AI `/ingest/file|url` → in ONE transaction delete old chunks, bulk insert chunks (batches of 200), set `ready`, `chunk_count`, `page_count`, insert `usage_events` (kind `embed`).
@@ -111,6 +127,7 @@ Built: register, login, refresh, logout, `GET/PATCH/DELETE /auth/me`, `POST /aut
 - Deleting a collection/document also deletes files from disk.
 
 ## Chat (spec 6.3, 7.2, 7.3, 8.3)
+
 - Save user msg, create assistant msg `status='streaming'`. Rewrite query (last 6 msgs, skip on first message) → `/embed` → hybrid RRF SQL exactly as spec 7.2 → top 8.
 - Constants `RRF_K=60`, `CANDIDATES=30`, `TOP_K=8` live in config so evals can vary them.
 - Zero chunks → stream the fixed "I couldn't find anything in your documents about that." with NO LLM call.
@@ -121,13 +138,16 @@ Built: register, login, refresh, logout, `GET/PATCH/DELETE /auth/me`, `POST /aut
 - Usage cost from a pricing map (USD per MTok); unknown model → cost 0 + warn log.
 
 ## Rate limits (Redis-backed)
+
 Chat 20/min/user · uploads 30/hour/user · auth 10/min/IP. Security headers on all responses.
 
 ## Database (spec Section 5)
+
 Postgres 16 + pgvector (`vector`, `pgcrypto` extensions). All tables + indexes come from migrations; never alter schema by hand.
 Chunks carry `tsv` for keyword search and `embedding vector(1536)`.
 
 ## Commands
+
 `npm run start:dev` · `npm run infra:up` (Postgres + Redis) · `npm run db:generate` then `npm run db:migrate` · `npm test` · `npm run lint` · `npm run typecheck`
 Schema changes: edit `src/database/schema.ts`, run `db:generate`, review the SQL, then `db:migrate`. Never edit an applied migration.
 Database specs (`test/*.e2e-spec.ts` that use `inject("dbReady")`) run against `docmind_test`, never the dev database (the setup refuses a name that does not end in `_test`). Run typecheck, lint and tests before finishing any change. `app.setup.ts` holds the shared app setup, so e2e tests exercise the real one.

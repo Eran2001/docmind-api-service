@@ -1,4 +1,10 @@
-import { Global, Inject, Logger, Module, type OnModuleDestroy } from "@nestjs/common";
+import {
+  Global,
+  Inject,
+  Logger,
+  Module,
+  type OnModuleDestroy,
+} from "@nestjs/common";
 import { Redis } from "ioredis";
 
 import { describeError, throttle } from "../../common/utils/describe-error";
@@ -23,7 +29,9 @@ export const REDIS = Symbol("REDIS");
         });
         const warn = throttle((m) => logger.warn(m));
         redis.on("ready", () => logger.log("Connected"));
-        redis.on("error", (err) => warn(`Connection problem: ${describeError(err)}`));
+        redis.on("error", (err) =>
+          warn(`Connection problem: ${describeError(err)}`),
+        );
         return redis;
       },
     },

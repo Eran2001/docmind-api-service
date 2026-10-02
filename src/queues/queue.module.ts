@@ -44,7 +44,9 @@ class QueueErrorLogger implements OnModuleInit {
   imports: [
     BullModule.forRootAsync({
       inject: [APP_CONFIG],
-      useFactory: (config: Env) => ({ connection: redisConnectionOptions(config.REDIS_URL) }),
+      useFactory: (config: Env) => ({
+        connection: redisConnectionOptions(config.REDIS_URL),
+      }),
     }),
     BullModule.registerQueue({ name: QUEUES.INGEST }, { name: QUEUES.EVALS }),
   ],

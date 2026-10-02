@@ -5,7 +5,9 @@ import { describeError, throttle } from "./describe-error";
 describe("describeError", () => {
   it("uses the message, falling back to the error code or name when it is empty", () => {
     expect(describeError(new Error("boom"))).toBe("boom");
-    expect(describeError(Object.assign(new Error(""), { code: "ECONNREFUSED" }))).toBe("Error (ECONNREFUSED)");
+    expect(
+      describeError(Object.assign(new Error(""), { code: "ECONNREFUSED" })),
+    ).toBe("Error (ECONNREFUSED)");
     expect(describeError(new AggregateError([]))).toBe("AggregateError");
     expect(describeError("plain")).toBe("plain");
   });

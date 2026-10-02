@@ -8,7 +8,10 @@ export function describeError(err: unknown): string {
 }
 
 /** Runs `log` at most once per `intervalMs`, so a dependency outage doesn't flood the logs while it retries. */
-export function throttle(log: (message: string) => void, intervalMs = 30_000): (message: string) => void {
+export function throttle(
+  log: (message: string) => void,
+  intervalMs = 30_000,
+): (message: string) => void {
   let last = 0;
   return (message) => {
     const now = Date.now();

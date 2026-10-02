@@ -17,3 +17,14 @@ export const AUTH = {
   /** The refresh cookie is only sent to the auth routes. */
   REFRESH_COOKIE_PATH: `/${API_PREFIX}/auth`,
 } as const;
+
+/** The "Try the demo" sandbox (modules/demo): what a visitor may do, and how long the account lives. */
+export const DEMO = {
+  QUESTIONS: 5, // chat messages
+  UPLOADS: 1, // files or web pages
+  TTL_HOURS: 24,
+  /** Demo accounts alive at once; past this, starting a new demo answers "busy". */
+  MAX_ACTIVE: 200,
+  /** The seeded account whose sample collection and eval set are copied for every visitor. */
+  TEMPLATE_EMAIL: "demo@docmind.dev",
+} as const;

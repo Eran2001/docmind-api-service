@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
 
+import { NoDemo } from "../../common/decorators/no-demo.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { respond } from "../../common/http/api-response";
 import { UuidParamPipe } from "../../common/pipes/uuid-param.pipe";
@@ -24,6 +25,7 @@ export class EvalsController {
     return respond.list(await this.evals.listSets(user.id));
   }
 
+  @NoDemo()
   @Post("sets")
   async createSet(
     @CurrentUser() user: AuthUser,
@@ -41,6 +43,7 @@ export class EvalsController {
     return respond.ok(await this.evals.getSet(user.id, id));
   }
 
+  @NoDemo()
   @Delete("sets/:resourceId")
   async removeSet(
     @CurrentUser() user: AuthUser,
@@ -50,6 +53,7 @@ export class EvalsController {
     return respond.done("Eval set deleted.", id);
   }
 
+  @NoDemo()
   @Post("sets/:resourceId/questions")
   async addQuestion(
     @CurrentUser() user: AuthUser,
@@ -61,6 +65,7 @@ export class EvalsController {
     return respond.createdDone(question.resourceId, "Eval question created.");
   }
 
+  @NoDemo()
   @Delete("questions/:resourceId")
   async removeQuestion(
     @CurrentUser() user: AuthUser,
@@ -70,6 +75,7 @@ export class EvalsController {
     return respond.done("Eval question deleted.", id);
   }
 
+  @NoDemo()
   @Post("sets/:resourceId/runs")
   async startRun(
     @CurrentUser() user: AuthUser,

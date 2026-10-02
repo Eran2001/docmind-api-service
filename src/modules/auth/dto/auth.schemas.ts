@@ -9,7 +9,11 @@ const email = z
   .email("Enter a valid email, like name@company.com");
 
 export const registerSchema = z.object({
-  name: z.string({ required_error: "Enter your full name" }).trim().min(1, "Enter your full name").max(100),
+  name: z
+    .string({ required_error: "Enter your full name" })
+    .trim()
+    .min(1, "Enter your full name")
+    .max(100),
   email,
   password: z
     .string({ required_error: "Create a password" })
@@ -20,7 +24,9 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 
 export const loginSchema = z.object({
   email,
-  password: z.string({ required_error: "Enter your password" }).min(1, "Enter your password"),
+  password: z
+    .string({ required_error: "Enter your password" })
+    .min(1, "Enter your password"),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
@@ -31,7 +37,9 @@ export const updateProfileSchema = z.object({
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
 export const changePasswordSchema = z.object({
-  currentPassword: z.string({ required_error: "Enter your current password" }).min(1, "Enter your current password"),
+  currentPassword: z
+    .string({ required_error: "Enter your current password" })
+    .min(1, "Enter your current password"),
   newPassword: registerSchema.shape.password,
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

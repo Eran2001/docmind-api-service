@@ -14,8 +14,16 @@ export class HealthController {
     const report = await this.health.check();
     // 503 only when the API can't do its job (database or Redis down); a missing AI service is just "degraded".
     if (report.status === "down") {
-      return respond.of({ status: 503, code: "ServiceUnavailable", message: "The database or Redis is down.", data: report });
+      return respond.of({
+        status: 503,
+        code: "ServiceUnavailable",
+        message: "The database or Redis is down.",
+        data: report,
+      });
     }
-    return respond.ok(report, report.status === "ok" ? "OK" : "Running with some services down.");
+    return respond.ok(
+      report,
+      report.status === "ok" ? "OK" : "Running with some services down.",
+    );
   }
 }

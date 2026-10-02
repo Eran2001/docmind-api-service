@@ -26,13 +26,33 @@ async function createApp(io: { db?: boolean; redis?: boolean; ai?: boolean }) {
       { provide: APP_CONFIG, useValue: config },
       { provide: APP_FILTER, useClass: AllExceptionsFilter },
       { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
-      { provide: PG_POOL, useValue: { query: db ? vi.fn().mockResolvedValue({}) : vi.fn().mockRejectedValue(new Error("down")) } },
-      { provide: REDIS, useValue: { ping: redis ? vi.fn().mockResolvedValue("PONG") : vi.fn().mockRejectedValue(new Error("down")) } },
-      { provide: AiClient, useValue: { isHealthy: vi.fn().mockResolvedValue(ai) } },
+      {
+        provide: PG_POOL,
+        useValue: {
+          query: db
+            ? vi.fn().mockResolvedValue({})
+            : vi.fn().mockRejectedValue(new Error("down")),
+        },
+      },
+      {
+        provide: REDIS,
+        useValue: {
+          ping: redis
+            ? vi.fn().mockResolvedValue("PONG")
+            : vi.fn().mockRejectedValue(new Error("down")),
+        },
+      },
+      {
+        provide: AiClient,
+        useValue: { isHealthy: vi.fn().mockResolvedValue(ai) },
+      },
     ],
   }).compile();
 
-  const app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(), { logger: false });
+  const app = moduleRef.createNestApplication<NestFastifyApplication>(
+    createAdapter(),
+    { logger: false },
+  );
   await configureApp(app, config);
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
@@ -49,7 +69,11 @@ describe("GET /api/v1/health", () => {
     app = await createApp({});
     const res = await app.inject({ method: "GET", url: "/api/v1/health" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ code: "OK", message: "OK", data: { status: "ok", db: "up", redis: "up", ai: "up" } });
+    expect(res.json()).toMatchObject({
+      code: "OK",
+      message: "OK",
+      data: { status: "ok", db: "up", redis: "up", ai: "up" },
+    });
     expect(res.json().requestId).toBe(res.headers["x-request-id"]);
   });
 
@@ -57,21 +81,30 @@ describe("GET /api/v1/health", () => {
     app = await createApp({ ai: false });
     const res = await app.inject({ method: "GET", url: "/api/v1/health" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ code: "OK", data: { status: "degraded", db: "up", redis: "up", ai: "down" } });
+    expect(res.json()).toMatchObject({
+      code: "OK",
+      data: { status: "degraded", db: "up", redis: "up", ai: "down" },
+    });
   });
 
   it("is 503 when the database is down", async () => {
     app = await createApp({ db: false });
     const res = await app.inject({ method: "GET", url: "/api/v1/health" });
     expect(res.statusCode).toBe(503);
-    expect(res.json()).toMatchObject({ code: "ServiceUnavailable", data: { status: "down", db: "down", redis: "up" } });
+    expect(res.json()).toMatchObject({
+      code: "ServiceUnavailable",
+      data: { status: "down", db: "down", redis: "up" },
+    });
   });
 
   it("is 503 when Redis is down", async () => {
     app = await createApp({ redis: false });
     const res = await app.inject({ method: "GET", url: "/api/v1/health" });
     expect(res.statusCode).toBe(503);
-    expect(res.json()).toMatchObject({ code: "ServiceUnavailable", data: { status: "down", redis: "down" } });
+    expect(res.json()).toMatchObject({
+      code: "ServiceUnavailable",
+      data: { status: "down", redis: "down" },
+    });
   });
 });
 
@@ -85,27 +118,50 @@ describe("app setup", () => {
   });
 
   it("generates an X-Request-Id and reuses a valid incoming one", async () => {
-    const generated = await app.inject({ method: "GET", url: "/api/v1/health" });
+    const generated = await app.inject({
+      method: "GET",
+      url: "/api/v1/health",
+    });
     expect(generated.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
 
-    const reused = await app.inject({ method: "GET", url: "/api/v1/health", headers: { "x-request-id": "trace-abc-12345" } });
+    const reused = await app.inject({
+      method: "GET",
+      url: "/api/v1/health",
+      headers: { "x-request-id": "trace-abc-12345" },
+    });
     expect(reused.headers["x-request-id"]).toBe("trace-abc-12345");
 
-    const rejected = await app.inject({ method: "GET", url: "/api/v1/health", headers: { "x-request-id": "bad id with spaces!" } });
+    const rejected = await app.inject({
+      method: "GET",
+      url: "/api/v1/health",
+      headers: { "x-request-id": "bad id with spaces!" },
+    });
     expect(rejected.headers["x-request-id"]).not.toBe("bad id with spaces!");
   });
 
   it("returns the standard error shape (with a request id) for unknown routes", async () => {
     const res = await app.inject({ method: "GET", url: "/api/v1/nope" });
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ code: "ApiRouteFailed", message: "Route not found.", error: { status: 404 } });
+    expect(res.json()).toMatchObject({
+      code: "ApiRouteFailed",
+      message: "Route not found.",
+      error: { status: 404 },
+    });
     expect(res.headers["x-request-id"]).toBeTruthy();
   });
 
   it("returns ValidationFailed for malformed JSON bodies", async () => {
-    const res = await app.inject({ method: "POST", url: "/api/v1/health", headers: { "content-type": "application/json" }, payload: "{bad" });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/health",
+      headers: { "content-type": "application/json" },
+      payload: "{bad",
+    });
     expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ code: "ValidationFailed", error: { status: 400 } });
+    expect(res.json()).toMatchObject({
+      code: "ValidationFailed",
+      error: { status: 400 },
+    });
   });
 
   it("sets security headers", async () => {
@@ -119,24 +175,40 @@ describe("app setup", () => {
       app.inject({
         method: "OPTIONS",
         url: "/api/v1/health",
-        headers: { origin, "access-control-request-method": "GET", "access-control-request-headers": "authorization" },
+        headers: {
+          origin,
+          "access-control-request-method": "GET",
+          "access-control-request-headers": "authorization",
+        },
       });
 
     const allowed = await preflight(config.WEB_ORIGIN[0]!);
-    expect(allowed.headers["access-control-allow-origin"]).toBe(config.WEB_ORIGIN[0]);
+    expect(allowed.headers["access-control-allow-origin"]).toBe(
+      config.WEB_ORIGIN[0],
+    );
     expect(allowed.headers["access-control-allow-credentials"]).toBe("true");
-    expect(String(allowed.headers["access-control-allow-headers"]).toLowerCase()).toContain("authorization");
+    expect(
+      String(allowed.headers["access-control-allow-headers"]).toLowerCase(),
+    ).toContain("authorization");
 
     // Every method the API uses must be allowed, or browsers refuse PATCH and DELETE before they are even sent.
-    const methods = String(allowed.headers["access-control-allow-methods"]).split(",").map((m) => m.trim());
-    for (const m of ["GET", "POST", "PATCH", "DELETE"]) expect(methods).toContain(m);
+    const methods = String(allowed.headers["access-control-allow-methods"])
+      .split(",")
+      .map((m) => m.trim());
+    for (const m of ["GET", "POST", "PATCH", "DELETE"])
+      expect(methods).toContain(m);
     const patchPreflight = await app.inject({
       method: "OPTIONS",
       url: "/api/v1/auth/me",
-      headers: { origin: config.WEB_ORIGIN[0]!, "access-control-request-method": "PATCH" },
+      headers: {
+        origin: config.WEB_ORIGIN[0]!,
+        "access-control-request-method": "PATCH",
+      },
     });
     expect(patchPreflight.statusCode).toBe(204);
-    expect(patchPreflight.headers["access-control-allow-origin"]).toBe(config.WEB_ORIGIN[0]);
+    expect(patchPreflight.headers["access-control-allow-origin"]).toBe(
+      config.WEB_ORIGIN[0],
+    );
 
     const blocked = await preflight("https://evil.example");
     expect(blocked.headers["access-control-allow-origin"]).toBeUndefined();

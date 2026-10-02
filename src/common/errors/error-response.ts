@@ -13,7 +13,12 @@ export interface ErrorResult {
   details?: unknown;
 }
 
-const result = (code: ErrorCode, message: string, details?: unknown, status: number = ERROR_STATUS[code]): ErrorResult => ({
+const result = (
+  code: ErrorCode,
+  message: string,
+  details?: unknown,
+  status: number = ERROR_STATUS[code],
+): ErrorResult => ({
   status,
   code,
   message,
@@ -29,39 +34,71 @@ function statusOf(exception: unknown): number | null {
 
 /** Pure mapping from anything thrown to an error result. Never leaks internals for 5xx. */
 export function toErrorResult(exception: unknown): ErrorResult {
-  if (exception instanceof AppError) return result(exception.code, exception.message, exception.details);
-  if (exception instanceof ZodError) return result("ValidationFailed", "The request is invalid.", exception.flatten());
+  if (exception instanceof AppError)
+    return result(exception.code, exception.message, exception.details);
+  if (exception instanceof ZodError)
+    return result(
+      "ValidationFailed",
+      "The request is invalid.",
+      exception.flatten(),
+    );
 
   const status = statusOf(exception);
   // A 404 that isn't an AppError comes from the router: the URL doesn't exist.
   if (status === 404) return result("ApiRouteFailed", "Route not found.");
-  if (status === 401) return result("Unauthorized", exception instanceof Error ? exception.message : "Authentication required.");
-  if (status === 429) return result("RateLimited", "Too many requests. Try again shortly.");
+  if (status === 401)
+    return result(
+      "Unauthorized",
+      exception instanceof Error
+        ? exception.message
+        : "Authentication required.",
+    );
+  if (status === 429)
+    return result("RateLimited", "Too many requests. Try again shortly.");
   if (status !== null && status >= 400 && status < 500) {
     // Other 4xx (malformed JSON, payload too large, ...) keep their own HTTP status.
-    return result("ValidationFailed", exception instanceof Error ? exception.message : "The request is invalid.", undefined, status);
+    return result(
+      "ValidationFailed",
+      exception instanceof Error
+        ? exception.message
+        : "The request is invalid.",
+      undefined,
+      status,
+    );
   }
   return result("InternalError", "Something went wrong. Please try again.");
 }
 
 /** Developer-facing detail for the `debug` field. Only ever included outside production. */
-export function toDebugInfo(exception: unknown, request: { method: string; url: string }): ApiDebugInfo {
+export function toDebugInfo(
+  exception: unknown,
+  request: { method: string; url: string },
+): ApiDebugInfo {
   const err = exception instanceof Error ? exception : null;
   return {
     name: err?.name ?? typeof exception,
     message: err?.message ?? String(exception),
     // The first frames are the useful ones; the rest is framework internals.
-    ...(err?.stack ? { stack: err.stack.split("\n").slice(0, 8).join("\n") } : {}),
+    ...(err?.stack
+      ? { stack: err.stack.split("\n").slice(0, 8).join("\n") }
+      : {}),
     method: request.method,
     path: request.url,
     timestamp: new Date().toISOString(),
   };
 }
 
-export function toErrorEnvelope(res: ErrorResult, requestId: string, debug?: ApiDebugInfo): ApiErrorEnvelope {
+export function toErrorEnvelope(
+  res: ErrorResult,
+  requestId: string,
+  debug?: ApiDebugInfo,
+): ApiErrorEnvelope {
   return {
     code: res.code,
-    error: { status: res.status, ...(res.details === undefined ? {} : { details: res.details }) },
+    error: {
+      status: res.status,
+      ...(res.details === undefined ? {} : { details: res.details }),
+    },
     ...(debug ? { debug } : {}),
     message: res.message,
     resourceId: null,

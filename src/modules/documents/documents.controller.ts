@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 
+import { RateLimit } from "../../common/decorators/rate-limit.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { AppError } from "../../common/errors/app-error";
 import { respond } from "../../common/http/api-response";
@@ -19,7 +20,16 @@ import type { AuthUser } from "../../common/types/fastify";
 import { InjectConfig } from "../../config/config.module";
 import type { Env } from "../../config/env.schema";
 import { addUrlSchema, type AddUrlInput } from "./dto/documents.schemas";
+import { DemoLimitsService } from "../demo/demo-limits.service";
 import { DocumentsService } from "./documents.service";
+
+/** Spec 8.4: 30 uploads (files and URLs together) per hour per user. */
+const UPLOAD_LIMIT = {
+  name: "upload",
+  limit: 30,
+  windowSeconds: 3600,
+  by: "user",
+} as const;
 
 const collectionId = () => new UuidParamPipe("Collection");
 const documentId = () => new UuidParamPipe("Document");
@@ -31,6 +41,7 @@ const fileError = (message: string) =>
 export class DocumentsController {
   constructor(
     private readonly documents: DocumentsService,
+    private readonly demoLimits: DemoLimitsService,
     @InjectConfig() private readonly config: Env,
   ) {}
 
@@ -56,6 +67,7 @@ export class DocumentsController {
   }
 
   /** multipart/form-data with one `file` field. 202: the file is saved and queued; processing happens in the background. */
+  @RateLimit(UPLOAD_LIMIT)
   @Post("collections/:resourceId/documents")
   async upload(
     @CurrentUser() user: AuthUser,
@@ -86,24 +98,37 @@ export class DocumentsController {
         `That file is larger than ${this.config.MAX_UPLOAD_MB} MB.`,
       );
 
-    const newId = await this.documents.uploadFile(
-      user.id,
-      collectionResourceId,
-      { filename: part.filename, data },
-    );
+    // Demo visitors get one upload; the unit is handed back if the file turns out to be unusable.
+    if (user.demo) await this.demoLimits.reserveUpload(user.id);
+    let newId: string;
+    try {
+      newId = await this.documents.uploadFile(user.id, collectionResourceId, {
+        filename: part.filename,
+        data,
+      });
+    } catch (error) {
+      if (user.demo) await this.demoLimits.refund(user.id, "upload");
+      throw error;
+    }
     return respond.acceptedDone(newId, "Document queued for processing.");
   }
 
+  @RateLimit(UPLOAD_LIMIT)
   @Post("collections/:resourceId/documents/url")
   async addUrl(
     @CurrentUser() user: AuthUser,
     @Param("resourceId", collectionId()) collectionResourceId: string,
     @Body(new ZodValidationPipe(addUrlSchema)) body: AddUrlInput,
   ) {
-    return respond.acceptedDone(
-      await this.documents.addUrl(user.id, collectionResourceId, body),
-      "URL queued for processing.",
-    );
+    if (user.demo) await this.demoLimits.reserveUpload(user.id);
+    let newId: string;
+    try {
+      newId = await this.documents.addUrl(user.id, collectionResourceId, body);
+    } catch (error) {
+      if (user.demo) await this.demoLimits.refund(user.id, "upload");
+      throw error;
+    }
+    return respond.acceptedDone(newId, "URL queued for processing.");
   }
 
   @Post("documents/:resourceId/reprocess")

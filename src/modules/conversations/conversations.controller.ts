@@ -34,9 +34,12 @@ export class ConversationsController {
     @Query(new ZodValidationPipe(listConversationsQuerySchema))
     query: ListConversationsQuery,
   ) {
-    return respond.list(
-      await this.conversations.list(user.id, collectionId, query.limit),
+    const { items, nextCursor } = await this.conversations.list(
+      user.id,
+      collectionId,
+      query,
     );
+    return respond.list(items, { nextCursor });
   }
 
   @Get("conversations/:resourceId")

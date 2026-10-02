@@ -18,7 +18,10 @@ import { ChatModule } from "./modules/chat/chat.module";
 import { EvalsModule } from "./modules/evals/evals.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { HealthModule } from "./modules/health/health.module";
+import { DemoRestrictionGuard } from "./common/guards/demo-restriction.guard";
+import { RateLimitGuard } from "./common/guards/rate-limit.guard";
 import { QueueModule } from "./queues/queue.module";
+import { UsageModule } from "./modules/usage/usage.module";
 
 @Module({
   imports: [
@@ -83,6 +86,7 @@ import { QueueModule } from "./queues/queue.module";
     ConversationsModule,
     ChatModule,
     EvalsModule,
+    UsageModule,
     DocumentsModule,
     HealthModule,
   ],
@@ -90,6 +94,9 @@ import { QueueModule } from "./queues/queue.module";
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Registered after the JWT guard on purpose: they need `req.user`.
+    { provide: APP_GUARD, useClass: DemoRestrictionGuard },
+    { provide: APP_GUARD, useClass: RateLimitGuard },
   ],
 })
 export class AppModule {}

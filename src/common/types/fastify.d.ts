@@ -4,6 +4,8 @@ import "fastify";
 export interface AuthUser {
   id: string;
   role: "user" | "admin";
+  /** True for "Try the demo" sandbox accounts. Read from the access token, so no database lookup. */
+  demo?: boolean;
 }
 
 declare module "fastify" {

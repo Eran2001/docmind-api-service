@@ -87,12 +87,10 @@ describe("ChatService", () => {
       rewriteQuery: vi
         .fn()
         .mockResolvedValue({ query: "return window", usage }),
-      embed: vi
-        .fn()
-        .mockResolvedValue({
-          embeddings: [Array.from({ length: 1536 }, () => 0.2)],
-          usage,
-        }),
+      embed: vi.fn().mockResolvedValue({
+        embeddings: [Array.from({ length: 1536 }, () => 0.2)],
+        usage,
+      }),
       answerStream: vi.fn(async function* (): AsyncGenerator<AiAnswerEvent> {
         yield { event: "token", text: "You have thirty days [1] [99]." };
         yield { event: "done", usage };

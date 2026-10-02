@@ -1,4 +1,9 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
+import {
+  CallHandler,
+  ExecutionContext,
+  Injectable,
+  NestInterceptor,
+} from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { map, type Observable } from "rxjs";
@@ -12,7 +17,10 @@ export class ResponseInterceptor implements NestInterceptor {
   constructor(private readonly reflector: Reflector) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const raw = this.reflector.getAllAndOverride<boolean>(RAW_RESPONSE, [context.getHandler(), context.getClass()]);
+    const raw = this.reflector.getAllAndOverride<boolean>(RAW_RESPONSE, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
     if (raw) return next.handle();
 
     const http = context.switchToHttp();

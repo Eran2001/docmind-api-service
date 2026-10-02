@@ -1,4 +1,10 @@
-import { Global, Inject, Logger, Module, type OnModuleDestroy } from "@nestjs/common";
+import {
+  Global,
+  Inject,
+  Logger,
+  Module,
+  type OnModuleDestroy,
+} from "@nestjs/common";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -20,9 +26,16 @@ export type Database = NodePgDatabase<typeof schema>;
       provide: PG_POOL,
       inject: [APP_CONFIG],
       useFactory: (config: Env): Pool => {
-        const pool = new Pool({ connectionString: config.DATABASE_URL, max: 10 });
+        const pool = new Pool({
+          connectionString: config.DATABASE_URL,
+          max: 10,
+        });
         // An idle client can error (e.g. Postgres restarts). Without a listener that would crash the process.
-        pool.on("error", (err) => new Logger("Postgres").error(`Idle client error: ${describeError(err)}`));
+        pool.on("error", (err) =>
+          new Logger("Postgres").error(
+            `Idle client error: ${describeError(err)}`,
+          ),
+        );
         return pool;
       },
     },

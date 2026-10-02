@@ -9,6 +9,7 @@ import type { Env } from "../../config/env.schema";
 interface AccessPayload {
   sub: string;
   role: "user" | "admin";
+  demo?: true;
 }
 
 @Injectable()
@@ -24,14 +25,22 @@ export class TokensService {
 
   /** Short-lived HS256 JWT `{ sub, role }` that the web app sends as `Authorization: Bearer`. */
   signAccess(user: AuthUser): Promise<string> {
-    const payload: AccessPayload = { sub: user.id, role: user.role };
+    const payload: AccessPayload = {
+      sub: user.id,
+      role: user.role,
+      ...(user.demo ? { demo: true as const } : {}),
+    };
     return this.jwt.signAsync(payload, { expiresIn: this.accessTtlSeconds });
   }
 
   /** Throws when the token is malformed, tampered with, or expired. */
   async verifyAccess(token: string): Promise<AuthUser> {
     const payload = await this.jwt.verifyAsync<AccessPayload>(token);
-    return { id: payload.sub, role: payload.role === "admin" ? "admin" : "user" };
+    return {
+      id: payload.sub,
+      role: payload.role === "admin" ? "admin" : "user",
+      demo: payload.demo === true,
+    };
   }
 
   /** 48 random bytes, base64url. Returned once, in the httpOnly cookie. */

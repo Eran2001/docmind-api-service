@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 // Mirrors the web app's src/schemas/collection.schema.ts.
-const name = z.string({ required_error: "Enter a name" }).trim().min(1, "Enter a name").max(60, "Use 60 characters or fewer");
+const name = z
+  .string({ required_error: "Enter a name" })
+  .trim()
+  .min(1, "Enter a name")
+  .max(60, "Use 60 characters or fewer");
 
 // "" and null both mean "no description".
 const description = z
@@ -26,7 +30,9 @@ export const updateCollectionSchema = z
       .optional()
       .transform((v) => (v === undefined ? undefined : v || null)),
   })
-  .refine((v) => v.name !== undefined || v.description !== undefined, { message: "Send a name or a description to change." });
+  .refine((v) => v.name !== undefined || v.description !== undefined, {
+    message: "Send a name or a description to change.",
+  });
 export type UpdateCollectionInput = z.infer<typeof updateCollectionSchema>;
 
 export const listCollectionsQuerySchema = z.object({

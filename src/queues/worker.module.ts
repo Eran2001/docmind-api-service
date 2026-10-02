@@ -9,6 +9,8 @@ import { QueueModule } from "./queue.module";
 import { IngestProcessor } from "./processors/ingest.processor";
 import { EvalsModule } from "../modules/evals/evals.module";
 import { EvalsProcessor } from "./processors/evals.processor";
+import { AuthModule } from "../modules/auth/auth.module";
+import { DemoCleanupService } from "./demo-cleanup.service";
 import { ChatModule } from "../modules/chat/chat.module";
 
 @Module({
@@ -20,7 +22,13 @@ import { ChatModule } from "../modules/chat/chat.module";
     StorageModule,
     EvalsModule,
     ChatModule,
+    AuthModule,
   ],
-  providers: [DocumentsRepository, IngestProcessor, EvalsProcessor],
+  providers: [
+    DocumentsRepository,
+    IngestProcessor,
+    EvalsProcessor,
+    DemoCleanupService,
+  ],
 })
 export class WorkerModule {}

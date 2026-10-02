@@ -37,6 +37,11 @@ export const users = pgTable(
     passwordHash: text("password_hash").notNull(),
     name: text("name").notNull(),
     role: text("role").notNull().default("user"),
+    avatarPath: text("avatar_path"), // relative to STORAGE_DIR; null = no picture
+    // Visitor sandbox accounts made by "Try the demo" (see modules/demo). Deleted again after DEMO.TTL_HOURS.
+    isDemo: boolean("is_demo").notNull().default(false),
+    demoQuestionsUsed: integer("demo_questions_used").notNull().default(0),
+    demoUploadsUsed: integer("demo_uploads_used").notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

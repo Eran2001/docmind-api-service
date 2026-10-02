@@ -15,11 +15,18 @@ export class JwtAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [context.getHandler(), context.getClass()])) return true;
+    if (
+      this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    )
+      return true;
 
     const req = context.switchToHttp().getRequest<FastifyRequest>();
     const [scheme, token] = (req.headers.authorization ?? "").split(" ");
-    if (scheme?.toLowerCase() !== "bearer" || !token) throw AppError.unauthorized();
+    if (scheme?.toLowerCase() !== "bearer" || !token)
+      throw AppError.unauthorized();
 
     try {
       req.user = await this.tokens.verifyAccess(token);

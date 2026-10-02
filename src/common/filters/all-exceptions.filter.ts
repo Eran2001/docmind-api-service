@@ -3,7 +3,11 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { InjectConfig } from "../../config/config.module";
 import type { Env } from "../../config/env.schema";
-import { toDebugInfo, toErrorEnvelope, toErrorResult } from "../errors/error-response";
+import {
+  toDebugInfo,
+  toErrorEnvelope,
+  toErrorResult,
+} from "../errors/error-response";
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -19,10 +23,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // Only unexpected failures are logged as errors; 4xx are the caller's problem.
     if (result.status >= 500) {
-      this.logger.error(exception instanceof Error ? (exception.stack ?? exception.message) : String(exception));
+      this.logger.error(
+        exception instanceof Error
+          ? (exception.stack ?? exception.message)
+          : String(exception),
+      );
     }
     // `debug` (stack, original message) is for developers, so it never leaves a production server.
-    const debug = this.config.NODE_ENV === "production" ? undefined : toDebugInfo(exception, req);
-    void reply.status(result.status).send(toErrorEnvelope(result, req.id, debug));
+    const debug =
+      this.config.NODE_ENV === "production"
+        ? undefined
+        : toDebugInfo(exception, req);
+    void reply
+      .status(result.status)
+      .send(toErrorEnvelope(result, req.id, debug));
   }
 }

@@ -29,15 +29,27 @@ export class AppError extends Error {
   }
   static emailTaken(message = "An account with this email already exists.") {
     // `fieldErrors` matches zod's flatten() so the UI can show it under the email field.
-    return new AppError("EmailAlreadyRegistered", message, { fieldErrors: { email: [message] } });
+    return new AppError("EmailAlreadyRegistered", message, {
+      fieldErrors: { email: [message] },
+    });
   }
   static limit(message: string) {
     return new AppError("LimitReached", message);
   }
+  static demoRestricted(
+    message = "That isn't available in the demo. Create a free account to unlock it.",
+  ) {
+    return new AppError("DemoRestricted", message);
+  }
+  static demoLimit(message: string) {
+    return new AppError("DemoLimitReached", message);
+  }
   static rateLimited(message = "Too many requests. Try again shortly.") {
     return new AppError("RateLimited", message);
   }
-  static unavailable(message = "A required service is unavailable. Try again shortly.") {
+  static unavailable(
+    message = "A required service is unavailable. Try again shortly.",
+  ) {
     return new AppError("ServiceUnavailable", message);
   }
   static aiService(message = "The AI service is unavailable.") {

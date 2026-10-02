@@ -18,6 +18,7 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:seed": "nest start --entryFile seed",
     "db:studio": "drizzle-kit studio",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down"

@@ -16,6 +16,32 @@ export interface PublicConversation {
   updatedAt: string;
 }
 
+const encodeCursor = (time: string, id: string) =>
+  Buffer.from(JSON.stringify({ t: time, i: id })).toString("base64url");
+
+function decodeCursor(cursor: string): { time: string; id: string } {
+  try {
+    const value = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf8"),
+    ) as {
+      t?: unknown;
+      i?: unknown;
+    };
+    if (
+      typeof value.t === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value.t) &&
+      typeof value.i === "string" &&
+      /^[0-9a-f-]{36}$/i.test(value.i)
+    )
+      return { time: value.t, id: value.i };
+  } catch {
+    // falls through to the error below
+  }
+  throw AppError.validation("That cursor is not valid.", {
+    fieldErrors: { cursor: ["That cursor is not valid."] },
+  });
+}
+
 const toPublic = (row: ConversationRow): PublicConversation => ({
   resourceId: row.id,
   collectionId: row.collectionId,
@@ -39,15 +65,27 @@ export class ConversationsService {
     return toPublic(await this.conversations.create(userId, collectionId));
   }
 
+  /** A page of conversations plus `nextCursor` (null on the last page). The cursor is opaque to clients. */
   async list(
     userId: string,
     collectionId: string,
-    limit: number,
-  ): Promise<PublicConversation[]> {
+    page: { limit: number; cursor?: string },
+  ): Promise<{ items: PublicConversation[]; nextCursor: string | null }> {
     await this.collections.requireOwned(userId, collectionId);
-    return (await this.conversations.list(userId, collectionId))
-      .slice(0, limit)
-      .map(toPublic);
+    const after = page.cursor ? decodeCursor(page.cursor) : undefined;
+    // One extra row tells us whether another page exists.
+    const rows = await this.conversations.list(userId, collectionId, {
+      limit: page.limit + 1,
+      after,
+    });
+    const hasMore = rows.length > page.limit;
+    const pageRows = rows.slice(0, page.limit);
+    const last = pageRows[pageRows.length - 1];
+    return {
+      items: pageRows.map(toPublic),
+      nextCursor:
+        hasMore && last ? encodeCursor(last.cursorTime, last.id) : null,
+    };
   }
 
   async get(userId: string, conversationId: string) {

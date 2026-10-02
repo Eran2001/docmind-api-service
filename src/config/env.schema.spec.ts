@@ -20,15 +20,21 @@ describe("loadEnv", () => {
   });
 
   it("coerces numeric strings", () => {
-    expect(loadEnv({ ...valid, API_PORT: "5050", MAX_UPLOAD_MB: "5" })).toMatchObject({ API_PORT: 5050, MAX_UPLOAD_MB: 5 });
+    expect(
+      loadEnv({ ...valid, API_PORT: "5050", MAX_UPLOAD_MB: "5" }),
+    ).toMatchObject({ API_PORT: 5050, MAX_UPLOAD_MB: 5 });
   });
 
   it("accepts several web origins separated by commas", () => {
-    expect(loadEnv({ ...valid, WEB_ORIGIN: "http://localhost:3000, http://localhost:8080" }).WEB_ORIGIN).toEqual([
-      "http://localhost:3000",
-      "http://localhost:8080",
-    ]);
-    expect(() => loadEnv({ ...valid, WEB_ORIGIN: "not-a-url" })).toThrow(/WEB_ORIGIN/);
+    expect(
+      loadEnv({
+        ...valid,
+        WEB_ORIGIN: "http://localhost:3000, http://localhost:8080",
+      }).WEB_ORIGIN,
+    ).toEqual(["http://localhost:3000", "http://localhost:8080"]);
+    expect(() => loadEnv({ ...valid, WEB_ORIGIN: "not-a-url" })).toThrow(
+      /WEB_ORIGIN/,
+    );
   });
 
   it("lists every missing required variable in one error", () => {
@@ -38,15 +44,26 @@ describe("loadEnv", () => {
       run();
     } catch (err) {
       const message = (err as Error).message;
-      for (const name of ["DATABASE_URL", "REDIS_URL", "JWT_SECRET", "INTERNAL_API_KEY"]) {
+      for (const name of [
+        "DATABASE_URL",
+        "REDIS_URL",
+        "JWT_SECRET",
+        "INTERNAL_API_KEY",
+      ]) {
         expect(message).toContain(name);
       }
     }
   });
 
   it("rejects weak secrets and malformed urls", () => {
-    expect(() => loadEnv({ ...valid, JWT_SECRET: "short" })).toThrow(/JWT_SECRET/);
-    expect(() => loadEnv({ ...valid, DATABASE_URL: "mysql://x" })).toThrow(/DATABASE_URL/);
-    expect(() => loadEnv({ ...valid, REDIS_URL: "localhost:6379" })).toThrow(/REDIS_URL/);
+    expect(() => loadEnv({ ...valid, JWT_SECRET: "short" })).toThrow(
+      /JWT_SECRET/,
+    );
+    expect(() => loadEnv({ ...valid, DATABASE_URL: "mysql://x" })).toThrow(
+      /DATABASE_URL/,
+    );
+    expect(() => loadEnv({ ...valid, REDIS_URL: "localhost:6379" })).toThrow(
+      /REDIS_URL/,
+    );
   });
 });

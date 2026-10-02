@@ -6,6 +6,7 @@ import {
   AiServiceError,
   type AiUsage,
 } from "../../integrations/ai/ai.client";
+import { costUsd } from "../usage/pricing";
 import { ConversationsService } from "../conversations/conversations.service";
 import type { ModelUsage } from "../conversations/conversations.repository";
 import { extractCitations } from "./citations";
@@ -31,14 +32,6 @@ export type ChatSseEvent =
 
 const NO_SOURCES_ANSWER =
   "I couldn't find anything in your documents about that.";
-
-const MODEL_PRICES_PER_MILLION: Record<
-  string,
-  { input: number; output: number }
-> = {
-  "text-embedding-3-small": { input: 0.02, output: 0 },
-  "llama3.2": { input: 0, output: 0 },
-};
 
 type EvalAnswerUsage = Omit<ModelUsage, "kind"> & { kind: "embed" | "answer" };
 
@@ -318,22 +311,12 @@ export class ChatService {
     kind: Kind,
     usage: AiUsage,
   ): Omit<ModelUsage, "kind"> & { kind: Kind } {
-    const pricing = MODEL_PRICES_PER_MILLION[usage.model];
-    if (!pricing)
-      this.logger.warn(
-        `No usage price configured for model ${usage.model}; recording zero cost.`,
-      );
-    const costUsd = pricing
-      ? (usage.input_tokens * pricing.input +
-          usage.output_tokens * pricing.output) /
-        1_000_000
-      : 0;
     return {
       kind,
       model: usage.model,
       inputTokens: usage.input_tokens,
       outputTokens: usage.output_tokens,
-      costUsd,
+      costUsd: costUsd(usage.model, usage.input_tokens, usage.output_tokens),
       latencyMs: usage.latency_ms,
     };
   }
