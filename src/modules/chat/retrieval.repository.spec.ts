@@ -85,5 +85,49 @@ describe.skipIf(!inject("dbReady"))("RetrievalRepository", () => {
       documentTitle: "Ready policy",
     });
     expect(results[0]?.score).toBeGreaterThan(0);
+    // The question vector is the chunk's own vector (similarity 1) and its words match the passage.
+    expect(results[0]?.similarity).toBeCloseTo(1, 5);
+    expect(results[0]?.keywordHit).toBe(true);
+  });
+
+  it("finds a passage when only SOME of the question's words match, but does not call that a keyword hit", async () => {
+    // A vector that points nowhere near the stored chunk, so only the keyword search can find it.
+    const farAway = Array.from({ length: 1536 }, (_, index) =>
+      index === 1 ? 1 : 0,
+    );
+
+    const results = await retrieval.search(
+      collectionId,
+      farAway,
+      "what is the refunds policy on spaceships",
+    );
+
+    expect(results.map((r) => r.documentTitle)).toContain("Ready policy");
+    const found = results.find((r) => r.documentTitle === "Ready policy");
+    expect(found?.keywordHit).toBe(false); // "spaceships" is not in the passage
+  });
+
+  it("reports similarity without a keyword hit when only the meaning matches", async () => {
+    const vector = Array.from({ length: 1536 }, (_, index) =>
+      index === 0 ? 1 : 0,
+    );
+
+    const results = await retrieval.search(collectionId, vector, "zzzxqj");
+
+    expect(results[0]?.similarity).toBeCloseTo(1, 5);
+    expect(results[0]?.keywordHit).toBe(false);
+  });
+
+  it("describes the collection and its documents, including unfinished ones", async () => {
+    const overview = await retrieval.collectionOverview(collectionId);
+
+    expect(overview.name).toBe("Retrieval test collection");
+    expect(overview.documents).toEqual(
+      expect.arrayContaining([
+        { title: "Ready policy", status: "ready" },
+        { title: "Processing policy", status: "processing" },
+      ]),
+    );
+    expect(overview.documents).toHaveLength(2);
   });
 });

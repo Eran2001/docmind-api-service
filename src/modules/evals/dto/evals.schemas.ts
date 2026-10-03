@@ -11,6 +11,7 @@ export const createEvalQuestionSchema = z.object({
   question: z.string().trim().min(1).max(1000),
   expectedAnswer: z.string().trim().min(1).max(2000),
   expectedDocumentId: z.string().uuid().optional(),
+  expectedEvidence: z.string().trim().min(1).max(500).optional(),
 });
 export type CreateEvalQuestionInput = z.infer<typeof createEvalQuestionSchema>;
 

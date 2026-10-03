@@ -112,6 +112,7 @@ export class EvalsService {
       question: input.question,
       expectedAnswer: input.expectedAnswer,
       expectedDocumentId,
+      expectedEvidence: input.expectedEvidence ?? null,
     });
     const expectedDocumentTitle = expectedDocumentId
       ? ((await this.evals.questionsForSet(setId)).find(

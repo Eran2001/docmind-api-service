@@ -1,0 +1,1 @@
+ALTER TABLE "eval_questions" ADD COLUMN "expected_evidence" text;

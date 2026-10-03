@@ -1,7 +1,18 @@
 export const API_PREFIX = "api/v1";
 
 // Hybrid retrieval (spec 7.2). Kept here so evals can vary them.
-export const RETRIEVAL = { RRF_K: 60, CANDIDATES: 30, TOP_K: 8 } as const;
+export const RETRIEVAL = {
+  RRF_K: 60,
+  CANDIDATES: 30,
+  TOP_K: 8,
+  /**
+   * Cosine similarity (0..1) the best passage needs before the answer model is called at all. Measured with
+   * text-embedding-3-small on real documents: unrelated text (a capital city, a joke, noise) scores 0.03 to 0.16 and genuine
+   * questions 0.28 to 0.53, but small talk like "hello" can reach 0.29, so greetings are caught by rules (chat/intents.ts) and
+   * this only filters text that is clearly unrelated. A keyword match in a passage always overrides it.
+   */
+  MIN_SIMILARITY: 0.15,
+} as const;
 
 export const COOKIES = { ACCESS: "dm_access", REFRESH: "dm_refresh" } as const;
 

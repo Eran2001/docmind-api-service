@@ -7,6 +7,7 @@ import {
 } from "../../integrations/ai/ai.client";
 import type { ConversationRow } from "../conversations/conversations.repository";
 import { ConversationsService } from "../conversations/conversations.service";
+import type { Env } from "../../config/env.schema";
 import { ChatService, type ChatSseEvent } from "./chat.service";
 import {
   RetrievalRepository,
@@ -43,6 +44,8 @@ const chunk: RetrievedChunk = {
   documentId: "00000000-0000-4000-8000-000000000107",
   documentTitle: "Returns.pdf",
   score: 0.03,
+  similarity: 0.6,
+  keywordHit: true,
 };
 
 describe("ChatService", () => {
@@ -58,6 +61,7 @@ describe("ChatService", () => {
   let retrieval: {
     readyDocumentCount: ReturnType<typeof vi.fn>;
     search: ReturnType<typeof vi.fn>;
+    collectionOverview: ReturnType<typeof vi.fn>;
   };
   let ai: {
     rewriteQuery: ReturnType<typeof vi.fn>;
@@ -82,6 +86,14 @@ describe("ChatService", () => {
     retrieval = {
       readyDocumentCount: vi.fn().mockResolvedValue(1),
       search: vi.fn().mockResolvedValue([chunk]),
+      collectionOverview: vi.fn().mockResolvedValue({
+        name: "Handbook",
+        documents: [
+          { title: "Returns.pdf", status: "ready" },
+          { title: "Shipping.md", status: "ready" },
+          { title: "Draft.docx", status: "processing" },
+        ],
+      }),
     };
     ai = {
       rewriteQuery: vi
@@ -103,6 +115,7 @@ describe("ChatService", () => {
       conversations as unknown as ConversationsService,
       retrieval as unknown as RetrievalRepository,
       ai as unknown as AiClient,
+      { RERANK_ENABLED: false, RERANK_CANDIDATES: 12 } as Env,
     );
   });
 
@@ -125,6 +138,7 @@ describe("ChatService", () => {
       collectionId,
       expect.any(Array),
       "How long can I return it?",
+      8,
     );
     expect(conversations.completeAssistant).toHaveBeenCalledWith(
       userId,
@@ -188,6 +202,80 @@ describe("ChatService", () => {
       ["return window"],
       expect.any(AbortSignal),
     );
+  });
+
+  const send = async (question: string) => {
+    const events: ChatSseEvent[] = [];
+    await chat.sendMessage(
+      userId,
+      conversationId,
+      question,
+      new AbortController().signal,
+      (e) => events.push(e),
+    );
+    return events;
+  };
+  const tokenText = (events: ChatSseEvent[]) =>
+    events
+      .filter((e) => e.event === "token")
+      .map((e) => (e.data as { text: string }).text)
+      .join("");
+
+  it("answers a greeting directly: no search, no model call, no cost", async () => {
+    const events = await send("hello");
+
+    expect(ai.embed).not.toHaveBeenCalled();
+    expect(retrieval.search).not.toHaveBeenCalled();
+    expect(ai.answerStream).not.toHaveBeenCalled();
+    expect(events.map((e) => e.event)).toEqual(["meta", "token", "done"]);
+    expect(tokenText(events)).toContain("**Handbook**");
+    expect(conversations.completeAssistant).toHaveBeenCalledWith(
+      userId,
+      conversationId,
+      assistantMessageId,
+      expect.objectContaining({ citations: [], usage: [] }),
+    );
+  });
+
+  it("answers questions about the library from the database", async () => {
+    const events = await send("how many docs have I uploaded");
+
+    expect(retrieval.search).not.toHaveBeenCalled();
+    expect(ai.answerStream).not.toHaveBeenCalled();
+    const text = tokenText(events);
+    expect(text).toContain("3 documents (2 ready, 1 not ready yet)");
+    expect(text).toContain("- Draft.docx (processing)");
+  });
+
+  it("still searches when a question merely starts like small talk", async () => {
+    await send("hi, how long can I return it?");
+
+    expect(retrieval.search).toHaveBeenCalled();
+    expect(ai.answerStream).toHaveBeenCalled();
+  });
+
+  it("does not call the answer model when nothing is close to the question", async () => {
+    retrieval.search.mockResolvedValue([
+      { ...chunk, similarity: 0.05, keywordHit: false },
+    ]);
+
+    const events = await send("what is the capital of France");
+
+    expect(ai.answerStream).not.toHaveBeenCalled();
+    expect(tokenText(events)).toBe(
+      "I couldn't find that in your documents. Try asking about what they contain: **Returns.pdf**, **Shipping.md**.",
+    );
+    expect(events.at(-1)).toMatchObject({ event: "done" });
+  });
+
+  it("still answers a low-similarity question when its words match a passage", async () => {
+    retrieval.search.mockResolvedValue([
+      { ...chunk, similarity: 0.05, keywordHit: true },
+    ]);
+
+    await send("SKU-9912");
+
+    expect(ai.answerStream).toHaveBeenCalled();
   });
 
   it("answers collections without ready documents without model calls", async () => {
@@ -255,6 +343,81 @@ describe("ChatService", () => {
         code: "AiServiceFailed",
         message: "I couldn't generate an answer. Please try again.",
       },
+    });
+  });
+  describe("with reranking on", () => {
+    const pool = [
+      { ...chunk, id: "p1", content: "first" },
+      { ...chunk, id: "p2", content: "second" },
+      { ...chunk, id: "p3", content: "third" },
+    ];
+    let rerank: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      rerank = vi.fn().mockResolvedValue({ ids: ["p3", "p1"], usage });
+      (ai as unknown as { rerank: unknown }).rerank = rerank;
+      retrieval.search.mockResolvedValue(pool);
+      chat = new ChatService(
+        conversations as unknown as ConversationsService,
+        retrieval as unknown as RetrievalRepository,
+        ai as unknown as AiClient,
+        { RERANK_ENABLED: true, RERANK_CANDIDATES: 12 } as Env,
+      );
+    });
+
+    it("searches for a bigger pool, answers from the reranked order, and records the rerank usage", async () => {
+      await send("How long can I return it?");
+
+      expect(retrieval.search).toHaveBeenCalledWith(
+        collectionId,
+        expect.any(Array),
+        "How long can I return it?",
+        12,
+      );
+      expect(rerank).toHaveBeenCalledWith(
+        "How long can I return it?",
+        [
+          { id: "p1", text: "first" },
+          { id: "p2", text: "second" },
+          { id: "p3", text: "third" },
+        ],
+        8,
+        expect.any(AbortSignal),
+      );
+      const answered = ai.answerStream.mock.calls[0]?.[0] as {
+        chunks: { id: string }[];
+      };
+      expect(answered.chunks.map((c) => c.id)).toEqual(["p3", "p1"]);
+      expect(conversations.completeAssistant).toHaveBeenCalledWith(
+        userId,
+        conversationId,
+        assistantMessageId,
+        expect.objectContaining({
+          usage: expect.arrayContaining([
+            expect.objectContaining({ kind: "rerank" }),
+          ]),
+        }),
+      );
+    });
+
+    it("falls back to the search order when reranking fails", async () => {
+      rerank.mockRejectedValue(new Error("rerank model down"));
+
+      const events = await send("How long can I return it?");
+
+      const answered = ai.answerStream.mock.calls[0]?.[0] as {
+        chunks: { id: string }[];
+      };
+      expect(answered.chunks.map((c) => c.id)).toEqual(["p1", "p2", "p3"]);
+      expect(events.at(-1)).toMatchObject({ event: "done" });
+    });
+
+    it("does not rerank a single passage", async () => {
+      retrieval.search.mockResolvedValue([pool[0]]);
+
+      await send("How long can I return it?");
+
+      expect(rerank).not.toHaveBeenCalled();
     });
   });
 });

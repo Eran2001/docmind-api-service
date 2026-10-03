@@ -1,0 +1,12 @@
+node_modules
+dist
+.e2e-build
+.e2e-storage
+storage
+coverage
+.env
+.env.*
+!.env.example
+.git
+test
+*.md

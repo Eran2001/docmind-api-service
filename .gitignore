@@ -7,3 +7,7 @@ storage
 *.tsbuildinfo
 .DS_Store
 .test-storage
+
+# end-to-end test build and files (see docmind-web-service/e2e)
+.e2e-build
+.e2e-storage

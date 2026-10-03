@@ -131,6 +131,8 @@ describe.skipIf(!inject("dbReady"))(
           documentId,
           documentTitle: "Handbook.pdf",
           score: 0.03,
+          similarity: 0.6,
+          keywordHit: true,
         },
       ]);
     });

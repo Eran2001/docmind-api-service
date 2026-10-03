@@ -228,7 +228,7 @@ export const usageEvents = pgTable(
     index("usage_events_user_created_idx").on(t.userId, t.createdAt),
     check(
       "usage_events_kind_check",
-      sql`${t.kind} IN ('embed', 'answer', 'rewrite', 'judge')`,
+      sql`${t.kind} IN ('embed', 'answer', 'rewrite', 'rerank', 'judge')`,
     ),
   ],
 );
@@ -257,6 +257,9 @@ export const evalQuestions = pgTable("eval_questions", {
     () => documents.id,
     { onDelete: "set null" },
   ),
+  // A phrase the retrieved passages must contain. With it, "retrieval hit" means "the passage with the answer was
+  // retrieved", not just "some passage of the right document was".
+  expectedEvidence: text("expected_evidence"),
   createdAt: createdAt(),
 });
 

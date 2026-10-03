@@ -6,10 +6,15 @@ import {
   AiServiceError,
   type AiUsage,
 } from "../../integrations/ai/ai.client";
+import { InjectConfig } from "../../config/config.module";
+import { RETRIEVAL } from "../../config/constants";
+import type { Env } from "../../config/env.schema";
 import { costUsd } from "../usage/pricing";
 import { ConversationsService } from "../conversations/conversations.service";
 import type { ModelUsage } from "../conversations/conversations.repository";
 import { extractCitations } from "./citations";
+import { detectIntent, directReply, NOT_FOUND, notFoundReply } from "./intents";
+import { hasRelevantPassage } from "./relevance";
 import { RetrievalRepository } from "./retrieval.repository";
 
 export type ChatSseEvent =
@@ -33,7 +38,9 @@ export type ChatSseEvent =
 const NO_SOURCES_ANSWER =
   "I couldn't find anything in your documents about that.";
 
-type EvalAnswerUsage = Omit<ModelUsage, "kind"> & { kind: "embed" | "answer" };
+type EvalAnswerUsage = Omit<ModelUsage, "kind"> & {
+  kind: "embed" | "rerank" | "answer";
+};
 
 @Injectable()
 export class ChatService {
@@ -43,7 +50,50 @@ export class ChatService {
     private readonly conversations: ConversationsService,
     private readonly retrieval: RetrievalRepository,
     private readonly ai: AiClient,
+    @InjectConfig() private readonly config: Env,
   ) {}
+
+  /**
+   * The best `topK` passages for a question. With RERANK_ENABLED it searches for a larger pool and lets the AI service's
+   * rerank model order it (docs benchmark: right passage in the top 3 went from 71% to 91%). If reranking fails the
+   * search order is used, so a rerank problem never breaks a chat.
+   */
+  private async retrieve(
+    collectionId: string,
+    query: string,
+    vector: number[],
+    topK: number,
+    signal: AbortSignal,
+    usage: ModelUsage[] | EvalAnswerUsage[],
+  ) {
+    if (!this.config.RERANK_ENABLED)
+      return this.retrieval.search(collectionId, vector, query, topK);
+    const pool = await this.retrieval.search(
+      collectionId,
+      vector,
+      query,
+      Math.max(topK, this.config.RERANK_CANDIDATES),
+    );
+    if (pool.length <= 1) return pool;
+    try {
+      const ranked = await this.ai.rerank(
+        query,
+        pool.map((chunk) => ({ id: chunk.id, text: chunk.content })),
+        topK,
+        signal,
+      );
+      (usage as ModelUsage[]).push(this.usageEvent("rerank", ranked.usage));
+      const byId = new Map(pool.map((chunk) => [chunk.id, chunk]));
+      const ordered = ranked.ids.flatMap((id) => byId.get(id) ?? []);
+      return (ordered.length > 0 ? ordered : pool).slice(0, topK);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      this.logger.warn(
+        `Rerank failed, using the search order (${error instanceof Error ? error.name : "unknown error"}).`,
+      );
+      return pool.slice(0, topK);
+    }
+  }
 
   async sendMessage(
     userId: string,
@@ -66,9 +116,32 @@ export class ChatService {
     const partial: string[] = [];
     const modelUsage: ModelUsage[] = [];
     emit({ event: "meta", data: pair });
-    emit({ event: "status", data: { stage: "searching" } });
 
     try {
+      // Greetings, thanks, "what can you do" and "how many documents do I have" aren't questions about the text of the
+      // documents: answer them directly, instantly and for free (no search, no model call).
+      const intent = detectIntent(question);
+      if (intent) {
+        const overview = await this.retrieval.collectionOverview(
+          conversation.collectionId,
+        );
+        const reply = directReply(intent, overview);
+        emit({ event: "token", data: { text: reply } });
+        await this.finish(
+          userId,
+          conversationId,
+          pair.assistantMessageId,
+          reply,
+          [],
+          [],
+          started,
+          emit,
+        );
+        this.generateTitle(question, conversationId, history.length === 0);
+        return;
+      }
+
+      emit({ event: "status", data: { stage: "searching" } });
       const hasReadyDocuments =
         (await this.retrieval.readyDocumentCount(conversation.collectionId)) >
         0;
@@ -105,18 +178,26 @@ export class ChatService {
           "The AI service returned no query embedding.",
         );
 
-      const chunks = await this.retrieval.search(
+      const chunks = await this.retrieve(
         conversation.collectionId,
-        vector,
         standaloneQuery,
+        vector,
+        RETRIEVAL.TOP_K,
+        signal,
+        modelUsage,
       );
-      if (chunks.length === 0) {
-        emit({ event: "token", data: { text: NO_SOURCES_ANSWER } });
+      // Nothing in the collection is close to the question (or matches its words): say so now instead of paying the
+      // answer model to read eight unrelated passages and reach the same conclusion.
+      if (!hasRelevantPassage(chunks)) {
+        const reply = notFoundReply(
+          await this.retrieval.collectionOverview(conversation.collectionId),
+        );
+        emit({ event: "token", data: { text: reply } });
         await this.finish(
           userId,
           conversationId,
           pair.assistantMessageId,
-          NO_SOURCES_ANSWER,
+          reply,
           [],
           modelUsage,
           started,
@@ -236,14 +317,17 @@ export class ChatService {
         "AI_INVALID_RESPONSE",
         "The AI service returned no query embedding.",
       );
-    const chunks = await this.retrieval.search(
+    const chunks = await this.retrieve(
       collectionId,
-      vector,
       question,
+      vector,
       topK,
+      signal,
+      usage,
     );
-    if (chunks.length === 0)
-      return { generatedAnswer: NO_SOURCES_ANSWER, chunks, usage };
+    // The same rule as the chat, so the eval measures what users get.
+    if (!hasRelevantPassage(chunks))
+      return { generatedAnswer: NOT_FOUND, chunks, usage };
     const answer = await this.ai.answerOnce(
       {
         question,

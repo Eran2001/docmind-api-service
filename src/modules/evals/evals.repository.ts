@@ -91,6 +91,7 @@ export class EvalsRepository {
     question: string;
     expectedAnswer: string;
     expectedDocumentId: string | null;
+    expectedEvidence: string | null;
   }): Promise<EvalQuestionRow> {
     const [row] = await this.db.insert(evalQuestions).values(input).returning();
     if (!row) throw new Error("Eval question insert returned no row");
@@ -230,7 +231,7 @@ export class EvalsRepository {
     userId: string,
     result: NewEvalResult,
     usage: {
-      kind: "embed" | "answer" | "judge";
+      kind: "embed" | "rerank" | "answer" | "judge";
       model: string;
       inputTokens: number;
       outputTokens: number;
@@ -262,7 +263,7 @@ export class EvalsRepository {
     userId: string,
     runId: string,
     usage: {
-      kind: "embed" | "answer" | "judge";
+      kind: "embed" | "rerank" | "answer" | "judge";
       model: string;
       inputTokens: number;
       outputTokens: number;

@@ -13,7 +13,7 @@ async function bootstrap(): Promise<void> {
   const config = loadEnv();
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    createAdapter(),
+    createAdapter({ trustProxy: config.TRUST_PROXY }),
     { bufferLogs: true },
   );
   app.useLogger(app.get(Logger));

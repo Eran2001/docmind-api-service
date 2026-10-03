@@ -71,34 +71,6 @@ The seed only ADDS what is missing (matched by name), so running it again on an 
 you uploaded to the demo account alone. Changed question text in `seed-data.ts` does not update an eval set that already exists;
 delete the set first to get the new version. Start the worker and the AI service afterwards so new documents get processed.
 
-### Benchmark and tuning tools (`bench/`)
-
-`npm run db:seed:bench` adds a second collection to the demo account, "DocMind Docs (benchmark)": the DocMind spec and READMEs
-(frozen copies in `bench/corpus`, about 54 chunks) and a 40-question eval set. Unlike the Northwind samples these documents split into
-dozens of chunks, so retrieval quality can actually be measured. Each answerable question names an **evidence phrase**
-(`expectedEvidence`); a run's "retrieval hit" then means "a retrieved passage contains that phrase", not just "the right document came
-back".
-
-- `node bench/retrieval-bench.mjs`: compares retrieval strategies in seconds, with no answer model (hit@3/5/8/12/16 and MRR).
-- `node bench/run-eval.mjs "DocMind docs benchmark" [--top-k 8]`: runs an eval set through the API and prints scores per question type.
-
-Results so far (llama3.2 answers, `gpt-5` judge): moving keyword search from "all words must match" to "all words + any word" and
-tightening the answer prompt took the benchmark from correctness 0.81 / faithfulness 0.91 / retrieval hit 0.85 to 0.93 / 0.995 / 0.93.
-With chat on `gpt-5` (instead of local `llama3.2`) the benchmark scored 0.91 / 1.00 / 0.93 and the Northwind set 0.99 / 1.00 / 1.00:
-about the same accuracy, perfect faithfulness, and answers in about 2 seconds, at roughly 0.3 to 0.6 cents per answer. The remaining misses
-are retrieval misses and conflicting facts in the corpus, not the model.
-Chunk sizes from 150 to 1000 tokens made no clear difference on this corpus (differences were inside the noise of 34 questions), so the
-spec's 500/80 stays. Scores move by a few points between identical runs (the answer model samples), so judge a change on more than one run.
-
-### Reranking (optional, off by default)
-
-`RERANK_ENABLED=true` makes chat and evals search for `RERANK_CANDIDATES` passages (default 12) and ask the AI service's rerank model
-(`POST /rerank`, `LLM_RERANK_MODEL` there, for example `gpt-5-mini`) to put the best 8 first. If reranking fails the search order is
-used. Measured on the docs benchmark: the right passage in the top 3 went from 71% to 91% and ranking quality (MRR) from 0.56 to 0.87,
-but with a small chat model the answers did not get better, and it costs about 5,000 more tokens (about 0.14 cents on `gpt-5-mini`) and
-about 4 more seconds per question. It becomes worth it with a stronger chat model or when top-3 precision matters. Rerank spend shows up
-as its own "Rerank" row in Usage. Compare strategies without an answer model with `node bench/retrieval-bench.mjs` (it has a rerank row).
-
 ### The demo ("Try the demo")
 
 `POST /api/v1/auth/demo` (public, 5 per hour per IP) creates a private sandbox account for one visitor and signs them in, with the
@@ -193,7 +165,6 @@ another entity keep their own names (`collectionId`, `userId`).
 | DELETE     | `/api/v1/evals/questions/:resourceId`      | Delete an owned question.                                                       |
 | POST       | `/api/v1/evals/sets/:resourceId/runs`      | Queue a run; scoring awaits the Python `/evals/judge` endpoint.                 |
 | GET        | `/api/v1/evals/runs/:resourceId`           | Read status, progress, metrics and results.                                     |
-| GET        | `/api/v1/collections/:resourceId/feedback` | protected; `?rating=-1` (or `1`) and `?limit=50`. The answers you rated in this collection, newest rating first, each with the question that was asked, your note and the answer. The eval question form uses it to start a question from a thumbs-down answer. |
 | GET        | `/api/v1/usage/me`                         | protected; `?days=30` (1–365). Your cost, tokens, requests and average latency for the last N UTC days, the previous N days (`previous` is null with no earlier activity), a zero-filled `daily` list and `byKind`. |
 | GET        | `/api/v1/usage/me/export`                  | protected; `?days=30`. Downloads a CSV (not the JSON envelope): one row per model call with UTC `created_at`, `kind`, `model`, tokens, `cost_usd` and `latency_ms`. Capped at 100,000 rows. |
 | GET        | `/api/v1/admin/usage`                      | admin only (anyone else gets 404); `?days=30`. Same shape as `/usage/me` for all users, plus `topUsers` (10 biggest by cost: `resourceId`, `name`, `email`, `requests`, `tokens`, `costUsd`). |

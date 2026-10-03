@@ -16,6 +16,7 @@ import { CollectionsModule } from "./modules/collections/collections.module";
 import { ConversationsModule } from "./modules/conversations/conversations.module";
 import { ChatModule } from "./modules/chat/chat.module";
 import { EvalsModule } from "./modules/evals/evals.module";
+import { FeedbackModule } from "./modules/feedback/feedback.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { HealthModule } from "./modules/health/health.module";
 import { DemoRestrictionGuard } from "./common/guards/demo-restriction.guard";
@@ -86,6 +87,7 @@ import { UsageModule } from "./modules/usage/usage.module";
     ConversationsModule,
     ChatModule,
     EvalsModule,
+    FeedbackModule,
     UsageModule,
     DocumentsModule,
     HealthModule,

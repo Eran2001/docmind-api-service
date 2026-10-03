@@ -14,8 +14,11 @@ import type { Env } from "./config/env.schema";
 const REQUEST_ID_PATTERN = /^[\w.-]{8,64}$/;
 
 /** Reuses a sane incoming X-Request-Id (so a trace can span services), otherwise makes a new one. */
-export function createAdapter(): FastifyAdapter {
+export function createAdapter(
+  options: { trustProxy?: boolean } = {},
+): FastifyAdapter {
   return new FastifyAdapter({
+    trustProxy: options.trustProxy ?? false,
     requestIdHeader: false,
     genReqId: (req: IncomingMessage) => {
       const incoming = req.headers["x-request-id"];

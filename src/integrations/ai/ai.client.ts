@@ -23,6 +23,10 @@ const rewriteResponseSchema = z.object({
   usage: usageSchema,
 });
 const titleResponseSchema = z.object({ title: z.string(), usage: usageSchema });
+const rerankResponseSchema = z.object({
+  ids: z.array(z.string()),
+  usage: usageSchema,
+});
 
 const chunkSchema = z.object({
   index: z.number().int().nonnegative(),
@@ -120,6 +124,21 @@ export class AiClient {
       "/rewrite-query",
       { history, question },
       rewriteResponseSchema,
+      signal,
+    );
+  }
+
+  /** Asks the rerank model to put the best `topN` of these passages first. Returns their ids, best first. */
+  async rerank(
+    question: string,
+    passages: { id: string; text: string }[],
+    topN: number,
+    signal?: AbortSignal,
+  ) {
+    return this.postJson(
+      "/rerank",
+      { question, passages, top_n: topN },
+      rerankResponseSchema,
       signal,
     );
   }

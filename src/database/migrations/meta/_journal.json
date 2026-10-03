@@ -29,6 +29,20 @@
       "when": 1790933005790,
       "tag": "0003_demo_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790957451966,
+      "tag": "0004_eval_expected_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791001412803,
+      "tag": "0005_usage_kind_rerank",
+      "breakpoints": true
     }
   ]
 }

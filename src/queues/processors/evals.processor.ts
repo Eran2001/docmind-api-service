@@ -9,6 +9,7 @@ import {
 } from "../../integrations/ai/ai.client";
 import { ChatService } from "../../modules/chat/chat.service";
 import { costUsd } from "../../modules/usage/pricing";
+import { isRetrievalHit } from "./retrieval-hit";
 import { EvalsRepository } from "../../modules/evals/evals.repository";
 import { QUEUES } from "../../config/constants";
 
@@ -79,11 +80,7 @@ export class EvalsProcessor extends WorkerHost {
         generated: generated.generatedAnswer,
         chunks: answerChunks,
       });
-      const retrievalHit =
-        question.expectedDocumentId === null ||
-        generated.chunks.some(
-          (chunk) => chunk.documentId === question.expectedDocumentId,
-        );
+      const retrievalHit = isRetrievalHit(question, generated.chunks);
       const judgeUsage = usageRecord("judge", judged.usage);
       const usage = [...generated.usage, judgeUsage];
       totalCostUsd += usage.reduce((total, event) => total + event.costUsd, 0);

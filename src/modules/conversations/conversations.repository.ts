@@ -13,7 +13,7 @@ import {
 export type ConversationRow = typeof conversations.$inferSelect;
 export type MessageRole = "user" | "assistant";
 export type MessageStatus = "streaming" | "complete" | "error";
-export type UsageKind = "embed" | "rewrite" | "answer";
+export type UsageKind = "embed" | "rewrite" | "rerank" | "answer";
 
 export interface ModelUsage {
   kind: UsageKind;

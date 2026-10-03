@@ -121,6 +121,7 @@ describe.skipIf(!inject("dbReady"))("usage routes (real Postgres)", () => {
       "answer",
       "embed",
       "judge",
+      "rerank",
       "rewrite",
     ]);
   });

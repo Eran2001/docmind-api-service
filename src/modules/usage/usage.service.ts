@@ -14,7 +14,7 @@ const CSV_HEADER = [
 
 const DAY_MS = 86_400_000;
 const TOP_USERS = 10;
-const KINDS = ["answer", "embed", "judge", "rewrite"] as const;
+const KINDS = ["answer", "embed", "judge", "rerank", "rewrite"] as const;
 
 @Injectable()
 export class UsageService {
