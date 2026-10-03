@@ -1,7 +1,7 @@
 node_modules
 dist
 coverage
-storage
+/storage
 .env
 .env.local
 *.tsbuildinfo
