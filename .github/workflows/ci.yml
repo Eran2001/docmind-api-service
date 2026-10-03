@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [development]
+  pull_request:
+    branches: [development, production]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API (lint, types, tests)
+    runs-on: ubuntu-latest
+    services:
+      # The database tests need real Postgres with pgvector, and the rate limiter and queue need Redis.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: docmind
+          POSTGRES_PASSWORD: docmind
+          POSTGRES_DB: docmind
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U docmind -d docmind"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      # vitest.config.mts points the tests at postgres://docmind:docmind@localhost:5432/docmind_test (created and migrated automatically).
+      - run: npm test
+      - run: npm run build
